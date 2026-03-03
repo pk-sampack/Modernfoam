@@ -24,7 +24,7 @@ st.markdown("""
 # 2. DATABASE SETUP (SUPABASE / POSTGRESQL)
 # ==========================================
 # Using st.secrets is the safe way for GitHub. The second URL is your fallback.
-DB_URL = st.secrets.get("DATABASE_URL", "postgresql://postgres:SmwlmGPdChstQmwY@db.bhtuuwiyncwifnxupgsl.supabase.co:5432/postgres")
+postgresql://postgres.bhtuuwiyncwifnxupgsl:SmwlmGPdChstQmwY@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
 
 def get_db_connection():
     return psycopg2.connect(DB_URL)
@@ -307,3 +307,4 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
+
