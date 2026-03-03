@@ -3,6 +3,7 @@ import psycopg2
 import pandas as pd
 from datetime import datetime
 import urllib.parse
+import time
 
 # ==========================================
 # 1. APP CONFIGURATION & THEME
@@ -23,7 +24,6 @@ st.markdown("""
 # ==========================================
 # 2. DATABASE SETUP (SUPABASE / POSTGRESQL)
 # ==========================================
-# Using the correct pooler URL format inside quotes
 DB_URL = st.secrets.get("DATABASE_URL", "postgresql://postgres.bhtuuwiyncwifnxupgsl:SmwlmGPdChstQmwY@aws-1-ap-south-1.pooler.supabase.com:6543/postgres")
 
 def get_db_connection():
@@ -52,7 +52,7 @@ def format_currency(amount): return f"PKR {amount:,.0f}"
 # ==========================================
 st.markdown("""
     <div style="text-align: center; padding-top: 10px; padding-bottom: 20px;">
-        <img src="https://raw.githubusercontent.com/pk-sampack/Modernfoam/main/MODERN%20FOAM%20bg.png" width="120" style="margin-bottom: 10px;">
+        <img src="https://raw.githubusercontent.com/pk-sampack/Modernfoam/main/MODERN%20FOAM.png" width="120" style="margin-bottom: 10px;">
         <h1 style="color: #006600 !important; font-size: 2.2rem; margin-top: 0;">Modern Foam Center</h1>
     </div>
 """, unsafe_allow_html=True)
@@ -120,7 +120,6 @@ with tab1:
             st.markdown(f"<h3 style='color:#006600;'>Grand Total: {format_currency(final_total)}</h3>", unsafe_allow_html=True)
             cust_phone = st.text_input("Customer Phone (Optional, format: 923XXXXXXXXX)")
             
-            # PERFECTLY INDENTED COMPLETE SALE BUTTON WITH int() WRAPPERS
             if st.button("Complete Cash Sale"):
                 conn = get_db_connection()
                 c = conn.cursor()
@@ -251,7 +250,7 @@ with tab3:
     conn.close()
 
 # ------------------------------------------
-# TAB 4: ACCOUNTS & TAB 5: ADMIN / CLOSING
+# TAB 4: ACCOUNTS 
 # ------------------------------------------
 with tab4:
     st.header("💸 Daily Expenses")
@@ -268,6 +267,9 @@ with tab4:
     st.dataframe(pd.read_sql_query("SELECT * FROM expenses ORDER BY id DESC LIMIT 20", conn), use_container_width=True)
     conn.close()
 
+# ------------------------------------------
+# TAB 5: ADMIN / CLOSING & INVENTORY EDIT
+# ------------------------------------------
 with tab5:
     st.header("📊 Admin, P&L & Reports")
     
@@ -291,7 +293,8 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
-            st.subheader("Edit/Delete Today's Sales")
+            # --- 1. DELETE SALE SECTION ---
+            st.subheader("🗑️ Edit/Delete Today's Sales")
             df_todays_sales = pd.read_sql_query("SELECT * FROM sales WHERE date LIKE %s", conn, params=(today_str+'%',))
             st.dataframe(df_todays_sales)
             
@@ -299,40 +302,64 @@ with tab5:
             if st.button("Delete Sale"):
                 if del_id > 0:
                     c = conn.cursor()
-                    
-                    # 1. Check if the sale actually exists first
                     c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (int(del_id),))
                     items_to_restock = c.fetchall()
                     
                     if items_to_restock:
-                        # 2. Add the quantities back to the inventory
                         for row in items_to_restock:
-                            item_id = row[0]
-                            qty = row[1]
-                            c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(qty), int(item_id)))
+                            c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row[1]), int(row[0])))
                         
-                        # 3. Permanently delete the sale records
                         c.execute("DELETE FROM sale_items WHERE sale_id=%s", (int(del_id),))
                         c.execute("DELETE FROM sales WHERE id=%s", (int(del_id),))
-                        
                         conn.commit()
                         st.success(f"✅ Sale #{del_id} deleted and items restocked!")
-                        
-                        # Pause for 1.5 seconds so the user can read the success message
-                        import time
                         time.sleep(1.5)
                         st.rerun()
                     else:
                         st.error(f"⚠️ Sale #{del_id} not found. It may have already been deleted!")
                 else:
                     st.warning("Please enter a valid Sale ID.")
+            
+            st.markdown("---")
+            
+            # --- 2. EDIT INVENTORY SECTION ---
+            st.subheader("✏️ Edit / Update Inventory")
+            df_inv_admin = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
+            
+            if not df_inv_admin.empty:
+                inv_edit_options = []
+                for _, row in df_inv_admin.iterrows():
+                    size_text = f" | {row['size']}" if row['size'] else ""
+                    inv_edit_options.append(f"ID: {row['id']} | {row['name']}{size_text}")
+                    
+                selected_edit_str = st.selectbox("Select Item to Edit", inv_edit_options)
+                selected_edit_id = int(selected_edit_str.split("ID: ")[1].split(" |")[0])
+                
+                item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].iloc[0]
+                
+                with st.form("edit_inventory_form"):
+                    edit_name = st.text_input("Name", value=item_to_edit['name'])
+                    edit_size = st.text_input("Size", value=item_to_edit['size'] if item_to_edit['size'] else "")
+                    
+                    c_cost, c_price, c_qty = st.columns(3)
+                    with c_cost: edit_cost = st.number_input("Cost Price", value=int(item_to_edit['cost_price']), min_value=0)
+                    with c_price: edit_price = st.number_input("Selling Price", value=int(item_to_edit['price']), min_value=0)
+                    with c_qty: edit_qty = st.number_input("Current Quantity", value=int(item_to_edit['quantity']), min_value=0)
+                    
+                    if st.form_submit_button("Update Item"):
+                        c = conn.cursor()
+                        c.execute('''UPDATE inventory 
+                                     SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s 
+                                     WHERE id=%s''', 
+                                  (edit_name, edit_size, int(edit_cost), int(edit_price), int(edit_qty), int(selected_edit_id)))
+                        conn.commit()
+                        st.success(f"✅ Item updated successfully!")
+                        time.sleep(1.5)
+                        st.rerun()
+            else:
+                st.info("Inventory is currently empty.")
+                
         elif pwd != "":
             st.error("Incorrect Password")
             
     conn.close()
-
-
-
-
-
-
