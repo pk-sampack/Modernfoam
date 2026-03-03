@@ -50,8 +50,12 @@ def format_currency(amount): return f"PKR {amount:,.0f}"
 # ==========================================
 # 3. MAIN UI
 # ==========================================
-st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Flag_of_Pakistan.svg/100px-Flag_of_Pakistan.svg.png", width=60)
-st.title("🟩 Modern Foam Center")
+st.markdown("""
+    <div style="text-align: center; padding-top: 10px; padding-bottom: 20px;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Flag_of_Pakistan.svg/100px-Flag_of_Pakistan.svg.png" width="60" style="margin-bottom: 10px;">
+        <h1 style="color: #006600 !important; font-size: 2.2rem; margin-top: 0;">Modern Foam Center</h1>
+    </div>
+""", unsafe_allow_html=True)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛒 POS & Returns", "📦 Inventory", "📝 Purchase Orders", "💸 Accounts", "📊 Admin & Reports"])
 
@@ -303,3 +307,4 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
+
