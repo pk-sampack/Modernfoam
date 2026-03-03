@@ -23,17 +23,17 @@ st.markdown("""
 # ==========================================
 # 2. DATABASE SETUP (SUPABASE / POSTGRESQL)
 # ==========================================
-# Using st.secrets is the safe way for GitHub. The second URL is your fallback.
+# Using the correct pooler URL format inside quotes
 DB_URL = st.secrets.get("DATABASE_URL", "postgresql://postgres.bhtuuwiyncwifnxupgsl:SmwlmGPdChstQmwY@aws-1-ap-south-1.pooler.supabase.com:6543/postgres")
+
 def get_db_connection():
     return psycopg2.connect(DB_URL)
 
 @st.cache_resource
 def init_db():
     conn = get_db_connection()
-    conn.autocommit = True # Safe mode for schema creation in Postgres
+    conn.autocommit = True
     c = conn.cursor()
-    # Postgres uses SERIAL instead of AUTOINCREMENT
     c.execute('''CREATE TABLE IF NOT EXISTS inventory (id SERIAL PRIMARY KEY, item_type TEXT, name TEXT, size TEXT, thickness TEXT, category TEXT, price INTEGER, cost_price INTEGER DEFAULT 0, quantity INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, date TEXT, customer_phone TEXT, total_amount INTEGER, status TEXT DEFAULT 'Completed')''')
     c.execute('''CREATE TABLE IF NOT EXISTS sale_items (id SERIAL PRIMARY KEY, sale_id INTEGER, item_desc TEXT, price INTEGER, cost_price INTEGER DEFAULT 0, qty INTEGER, item_id INTEGER)''')
@@ -56,7 +56,7 @@ st.title("🟩 Modern Foam Center")
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛒 POS & Returns", "📦 Inventory", "📝 Purchase Orders", "💸 Accounts", "📊 Admin & Reports"])
 
 # ------------------------------------------
-# TAB 1: POS & RETURNS (WITH WHATSAPP)
+# TAB 1: POS & RETURNS
 # ------------------------------------------
 with tab1:
     pos_mode = st.radio("Mode", ["New Sale", "Process Return"], horizontal=True)
@@ -116,18 +116,17 @@ with tab1:
             st.markdown(f"<h3 style='color:#006600;'>Grand Total: {format_currency(final_total)}</h3>", unsafe_allow_html=True)
             cust_phone = st.text_input("Customer Phone (Optional, format: 923XXXXXXXXX)")
             
-           if st.button("Complete Cash Sale"):
+            # PERFECTLY INDENTED COMPLETE SALE BUTTON WITH int() WRAPPERS
+            if st.button("Complete Cash Sale"):
                 conn = get_db_connection()
                 c = conn.cursor()
                 date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Wrap final_total in int()
                 c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, int(final_total)))
                 sale_id = c.fetchone()[0]
                 
                 receipt_items_text = ""
                 for item in st.session_state.cart:
-                    # Wrap all item values in int() to prevent the numpy.int64 error
                     c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)",
                               (int(sale_id), item['desc'], int(item['price']), int(item['cost_price']), int(item['qty']), int(item['id'])))
                     c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (int(item['qty']), int(item['id'])))
@@ -137,18 +136,6 @@ with tab1:
                 conn.close()
                 st.session_state.cart = []
                 
-                receipt_items_text = ""
-                for item in st.session_state.cart:
-                    c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)",
-                              (sale_id, item['desc'], item['price'], item['cost_price'], item['qty'], item['id']))
-                    c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (item['qty'], item['id']))
-                    receipt_items_text += f"- {item['qty']}x {item['desc']}\n"
-                    
-                conn.commit()
-                conn.close()
-                st.session_state.cart = []
-                
-                # WHATSAPP RESTORED
                 wa_text = f"*Modern Foam Center Receipt*\n\nItems:\n{receipt_items_text}\n"
                 if discount_type != "None" and discount_value > 0:
                     wa_text += f"Subtotal: {format_currency(grand_total)}\n{discount_text}\n"
@@ -176,8 +163,8 @@ with tab1:
                     conn = get_db_connection()
                     c = conn.cursor()
                     for _, row in df_sale.iterrows():
-                        c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (row['qty'], row['item_id']))
-                    c.execute("UPDATE sales SET status = 'Returned', total_amount = 0 WHERE id = %s", (sale_id_to_return,))
+                        c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row['qty']), int(row['item_id'])))
+                    c.execute("UPDATE sales SET status = 'Returned', total_amount = 0 WHERE id = %s", (int(sale_id_to_return),))
                     conn.commit()
                     conn.close()
                     st.success("Return Processed successfully!")
@@ -210,7 +197,7 @@ with tab2:
             if st.form_submit_button("Save"):
                 conn = get_db_connection()
                 c = conn.cursor()
-                c.execute("INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (type_val, name, size, thick, cat, price, cost, qty))
+                c.execute("INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (type_val, name, size, thick, cat, int(price), int(cost), int(qty)))
                 conn.commit()
                 conn.close()
                 st.success("Item Added!")
@@ -221,13 +208,12 @@ with tab2:
     conn.close()
 
 # ------------------------------------------
-# TAB 3: PURCHASE ORDERS (UPDATED WITH INVENTORY SELECTOR)
+# TAB 3: PURCHASE ORDERS 
 # ------------------------------------------
 with tab3:
     st.header("📝 Create Purchase Order")
     supplier = st.text_input("Supplier/Factory Name (e.g., Diamond Foam Factory)")
     
-    # NEW: Fetch existing items to select from
     conn = get_db_connection()
     df_all_inv = pd.read_sql_query("SELECT name, size FROM inventory", conn)
     conn.close()
@@ -239,7 +225,6 @@ with tab3:
         
     selected_po_items = st.multiselect("Select items to restock from Inventory", list(set(inv_options)))
     
-    # Combine selected items into the text area
     default_po_text = ""
     for item in selected_po_items:
         default_po_text += f"- 10x {item}\n"
@@ -251,7 +236,7 @@ with tab3:
         conn = get_db_connection()
         c = conn.cursor()
         date_now = datetime.now().strftime("%Y-%m-%d")
-        c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost) VALUES (%s, %s, %s, %s)", (date_now, supplier, po_details, po_cost))
+        c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost) VALUES (%s, %s, %s, %s)", (date_now, supplier, po_details, int(po_cost)))
         conn.commit()
         conn.close()
         st.success("Purchase Order Saved!")
@@ -271,7 +256,7 @@ with tab4:
     if st.button("Record Expense") and desc:
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO expenses (date, description, amount) VALUES (%s, %s, %s)", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), desc, amt))
+        c.execute("INSERT INTO expenses (date, description, amount) VALUES (%s, %s, %s)", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), desc, int(amt)))
         conn.commit()
         conn.close()
         st.success("Saved!")
@@ -284,7 +269,6 @@ with tab5:
     
     today_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
-    # Postgres uses COALESCE instead of IFNULL
     rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc[0]['t']
     cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date LIKE %s AND s.status='Completed'", conn, params=(today_str+'%',)).iloc[0]['c']
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc[0]['e']
@@ -292,9 +276,9 @@ with tab5:
     net = rev - cogs - exp
     
     colA, colB, colC = st.columns(3)
-    colA.metric("Today's Cash (Revenue)", format_currency(rev))
-    colB.metric("Today's Expenses", format_currency(exp))
-    colC.metric("Net Profit Today", format_currency(net))
+    colA.metric("Today's Cash (Revenue)", format_currency(int(rev)))
+    colB.metric("Today's Expenses", format_currency(int(exp)))
+    colC.metric("Net Profit Today", format_currency(int(net)))
     
     st.markdown("---")
     
@@ -310,8 +294,8 @@ with tab5:
             del_id = st.number_input("Enter Sale ID to permanently DELETE", min_value=0)
             if st.button("Delete Sale"):
                 c = conn.cursor()
-                c.execute("DELETE FROM sales WHERE id=%s", (del_id,))
-                c.execute("DELETE FROM sale_items WHERE sale_id=%s", (del_id,))
+                c.execute("DELETE FROM sales WHERE id=%s", (int(del_id),))
+                c.execute("DELETE FROM sale_items WHERE sale_id=%s", (int(del_id),))
                 conn.commit()
                 st.success("Sale Deleted.")
                 st.rerun()
@@ -319,6 +303,3 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
-
-
-
