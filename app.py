@@ -116,13 +116,26 @@ with tab1:
             st.markdown(f"<h3 style='color:#006600;'>Grand Total: {format_currency(final_total)}</h3>", unsafe_allow_html=True)
             cust_phone = st.text_input("Customer Phone (Optional, format: 923XXXXXXXXX)")
             
-            if st.button("Complete Cash Sale"):
+           if st.button("Complete Cash Sale"):
                 conn = get_db_connection()
                 c = conn.cursor()
                 date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Postgres requires RETURNING id to get the ID back
-                c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, final_total))
+                
+                # Wrap final_total in int()
+                c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, int(final_total)))
                 sale_id = c.fetchone()[0]
+                
+                receipt_items_text = ""
+                for item in st.session_state.cart:
+                    # Wrap all item values in int() to prevent the numpy.int64 error
+                    c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)",
+                              (int(sale_id), item['desc'], int(item['price']), int(item['cost_price']), int(item['qty']), int(item['id'])))
+                    c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (int(item['qty']), int(item['id'])))
+                    receipt_items_text += f"- {item['qty']}x {item['desc']}\n"
+                    
+                conn.commit()
+                conn.close()
+                st.session_state.cart = []
                 
                 receipt_items_text = ""
                 for item in st.session_state.cart:
@@ -306,5 +319,6 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
+
 
 
