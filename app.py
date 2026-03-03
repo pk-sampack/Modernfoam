@@ -184,12 +184,12 @@ with tab2:
             type_val = st.radio("Type", ["Mattress", "Other Item"])
             name = st.text_input("Name")
             col_s1, col_s2 = st.columns(2)
-            with col_s1: size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x60 (Queen)", "78x42 (Single)", "Custom"])
+            with col_s1: size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x60 (Queen)", "78x66 (Queen1)", "78x42 (Single)", "Custom"])
             with col_s2: 
                 if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key="cust_size")
                 else: size = size_choice
 
-            thick = st.selectbox("Thickness", ["4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
+            thick = st.selectbox("Thickness", ["0.5 inch", "1 inch", "1.5 inch", "2 inch", "3 inch", "4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
             cat = st.selectbox("Category", ["Covered", "Uncovered"]) if type_val == "Mattress" else ""
             
             c1, c2, c3 = st.columns(3)
@@ -363,3 +363,4 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
+
