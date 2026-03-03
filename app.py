@@ -300,29 +300,37 @@ with tab5:
                 if del_id > 0:
                     c = conn.cursor()
                     
-                    # 1. Fetch the items that were in this sale so we can restock them
+                    # 1. Check if the sale actually exists first
                     c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (int(del_id),))
                     items_to_restock = c.fetchall()
                     
-                    # 2. Add the quantities back to the inventory
-                    for row in items_to_restock:
-                        item_id = row[0]
-                        qty = row[1]
-                        c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(qty), int(item_id)))
-                    
-                    # 3. Permanently delete the sale records
-                    c.execute("DELETE FROM sale_items WHERE sale_id=%s", (int(del_id),))
-                    c.execute("DELETE FROM sales WHERE id=%s", (int(del_id),))
-                    
-                    conn.commit()
-                    st.success(f"Sale #{del_id} deleted and items restocked to inventory.")
-                    st.rerun()
+                    if items_to_restock:
+                        # 2. Add the quantities back to the inventory
+                        for row in items_to_restock:
+                            item_id = row[0]
+                            qty = row[1]
+                            c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(qty), int(item_id)))
+                        
+                        # 3. Permanently delete the sale records
+                        c.execute("DELETE FROM sale_items WHERE sale_id=%s", (int(del_id),))
+                        c.execute("DELETE FROM sales WHERE id=%s", (int(del_id),))
+                        
+                        conn.commit()
+                        st.success(f"✅ Sale #{del_id} deleted and items restocked!")
+                        
+                        # Pause for 1.5 seconds so the user can read the success message
+                        import time
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error(f"⚠️ Sale #{del_id} not found. It may have already been deleted!")
                 else:
                     st.warning("Please enter a valid Sale ID.")
         elif pwd != "":
             st.error("Incorrect Password")
             
     conn.close()
+
 
 
 
