@@ -68,7 +68,7 @@ with tab1:
     if pos_mode == "New Sale":
         st.header("New Cash Sale")
         conn = get_db_connection()
-        df_inv = pd.read_sql_query("SELECT * FROM inventory WHERE quantity > 0", conn)
+        df_inv = pd.read_sql_query("SELECT * FROM inventory WHERE quantity > 0 ORDER BY name ASC", conn)
         conn.close()
         
         if df_inv.empty:
@@ -76,12 +76,24 @@ with tab1:
         else:
             options = []
             for _, row in df_inv.iterrows():
-                desc = f"{row['name']} | {row['size']}" if row['item_type'] == 'Mattress' else row['name']
+                # ADDED THICKNESS TO THE DESCRIPTION
+                if row['item_type'] == 'Mattress':
+                    desc = f"{row['name']} | {row['size']} | {row['thickness']}"
+                else:
+                    size_text = f" | {row['size']}" if row['size'] else ""
+                    desc = f"{row['name']}{size_text}"
+                    
                 options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
                 
             selected_item_str = st.selectbox("Select Item", options)
             selected_id = int(selected_item_str.split("ID:")[1].split(" - ")[0])
             item_data = df_inv[df_inv['id'] == selected_id].iloc[0]
+            
+            # Reconstruct the exact description for the cart to ensure it saves correctly
+            if item_data['item_type'] == 'Mattress':
+                cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
+            else:
+                cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
             
             col1, col2 = st.columns([3, 1])
             with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
@@ -90,9 +102,12 @@ with tab1:
                 st.write("")
                 if st.button("Add to Bill"):
                     st.session_state.cart.append({
-                        'id': item_data['id'], 'desc': item_data['name'], 
-                        'price': item_data['price'], 'cost_price': item_data['cost_price'],
-                        'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy
+                        'id': item_data['id'], 
+                        'desc': cart_desc, 
+                        'price': item_data['price'], 
+                        'cost_price': item_data['cost_price'],
+                        'qty': qty_to_buy, 
+                        'total': item_data['price'] * qty_to_buy
                     })
                     st.rerun()
 
@@ -184,12 +199,12 @@ with tab2:
             type_val = st.radio("Type", ["Mattress", "Other Item"])
             name = st.text_input("Name")
             col_s1, col_s2 = st.columns(2)
-            with col_s1: size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x60 (Queen)", "78x66 (Queen1)", "78x42 (Single)", "Custom"])
+            with col_s1: size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x60 (Queen)", "78x42 (Single)", "Custom"])
             with col_s2: 
                 if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key="cust_size")
                 else: size = size_choice
 
-            thick = st.selectbox("Thickness", ["0.5 inch", "1 inch", "1.5 inch", "2 inch", "3 inch", "4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
+            thick = st.selectbox("Thickness", ["4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
             cat = st.selectbox("Category", ["Covered", "Uncovered"]) if type_val == "Mattress" else ""
             
             c1, c2, c3 = st.columns(3)
@@ -218,12 +233,15 @@ with tab3:
     supplier = st.text_input("Supplier/Factory Name (e.g., Diamond Foam Factory)")
     
     conn = get_db_connection()
-    df_all_inv = pd.read_sql_query("SELECT name, size FROM inventory", conn)
+    # ADDED THICKNESS TO PO QUERY
+    df_all_inv = pd.read_sql_query("SELECT name, size, thickness FROM inventory", conn)
     conn.close()
     
     inv_options = []
     for _, row in df_all_inv.iterrows():
-        opt = f"{row['name']} - {row['size']}" if row['size'] else f"{row['name']}"
+        opt = row['name']
+        if row['size']: opt += f" - {row['size']}"
+        if row['thickness']: opt += f" - {row['thickness']}"
         inv_options.append(opt)
         
     selected_po_items = st.multiselect("Select items to restock from Inventory", list(set(inv_options)))
@@ -293,7 +311,6 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
-            # --- 1. DELETE SALE SECTION ---
             st.subheader("🗑️ Edit/Delete Today's Sales")
             df_todays_sales = pd.read_sql_query("SELECT * FROM sales WHERE date LIKE %s", conn, params=(today_str+'%',))
             st.dataframe(df_todays_sales)
@@ -322,15 +339,17 @@ with tab5:
             
             st.markdown("---")
             
-            # --- 2. EDIT INVENTORY SECTION ---
             st.subheader("✏️ Edit / Update Inventory")
             df_inv_admin = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
             
             if not df_inv_admin.empty:
                 inv_edit_options = []
                 for _, row in df_inv_admin.iterrows():
-                    size_text = f" | {row['size']}" if row['size'] else ""
-                    inv_edit_options.append(f"ID: {row['id']} | {row['name']}{size_text}")
+                    # ADDED THICKNESS TO ADMIN EDITOR
+                    opt_str = f"ID: {row['id']} | {row['name']}"
+                    if row['size']: opt_str += f" | {row['size']}"
+                    if row['thickness']: opt_str += f" | {row['thickness']}"
+                    inv_edit_options.append(opt_str)
                     
                 selected_edit_str = st.selectbox("Select Item to Edit", inv_edit_options)
                 selected_edit_id = int(selected_edit_str.split("ID: ")[1].split(" |")[0])
@@ -363,4 +382,3 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
-
