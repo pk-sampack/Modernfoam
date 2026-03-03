@@ -52,7 +52,7 @@ def format_currency(amount): return f"PKR {amount:,.0f}"
 # ==========================================
 st.markdown("""
     <div style="text-align: center; padding-top: 10px; padding-bottom: 20px;">
-        <img src="https://raw.githubusercontent.com/pk-sampack/Modernfoam/main/MODERN%20FOAM.png" width="120" style="margin-bottom: 10px;">
+        <img src="https://raw.githubusercontent.com/pk-sampack/Modernfoam/main/MODERN%20FOAM%20bg.png" width="120" style="margin-bottom: 10px;">
         <h1 style="color: #006600 !important; font-size: 2.2rem; margin-top: 0;">Modern Foam Center</h1>
     </div>
 """, unsafe_allow_html=True)
@@ -307,6 +307,7 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
+
 
 
 
