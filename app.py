@@ -524,31 +524,20 @@ with tab5:
                         if adj_target in ["Both Cost & Selling Price", "Only Cost Price"]: cols_to_update.append("cost_price")
                         if adj_target in ["Both Cost & Selling Price", "Only Selling Price"]: cols_to_update.append("price")
                             
+                        # PERFECTLY INDENTED LOOP
                         for col in cols_to_update:
-    if col == "price":
-        if adj_type == "Percentage (%)":
-            query = f"""
-            UPDATE inventory
-            SET {col} = GREATEST(
-                0,
-                CAST(CEIL(({col} + ({col} * %s / 100.0)) / 10.0) * 10 AS INTEGER)
-            )
-            """
-        else:
-            query = f"""
-            UPDATE inventory
-            SET {col} = GREATEST(
-                0,
-                CAST(CEIL(({col} + %s) / 10.0) * 10 AS INTEGER)
-            )
-            """
-    else:
-        if adj_type == "Percentage (%)":
-            query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + ({col} * %s / 100.0) AS INTEGER))"
-        else:
-            query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + %s AS INTEGER))"
-
-    c.execute(query, (adj_value,))
+                            if col == "price":
+                                if adj_type == "Percentage (%)":
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(ROUND(({col} + ({col} * %s / 100.0)) / 10.0) * 10 AS INTEGER))"
+                                else:
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(ROUND(({col} + %s) / 10.0) * 10 AS INTEGER))"
+                            else:
+                                if adj_type == "Percentage (%)":
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + ({col} * %s / 100.0) AS INTEGER))"
+                                else:
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + %s AS INTEGER))"
+                            
+                            c.execute(query, (adj_value,))
                             
                         conn.commit()
                         st.success(f"✅ Successfully updated {adj_target}!")
@@ -603,8 +592,3 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
-
-
-
-
-
