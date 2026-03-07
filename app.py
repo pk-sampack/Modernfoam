@@ -297,7 +297,7 @@ with tab5:
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc[0]['e']
     net = rev - cogs - exp
     
-    # --- 2. NEW: TOTAL STOCK VALUATION ---
+    # --- 2. TOTAL STOCK VALUATION ---
     val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc[0]
     total_stock_cost = val_query['total_cost']
     total_stock_retail = val_query['total_retail']
@@ -350,7 +350,7 @@ with tab5:
             
             st.markdown("---")
             
-            # --- NEW: BULK PRICE ADJUSTMENT ---
+            # --- BULK PRICE ADJUSTMENT (WITH ROUNDING) ---
             st.subheader("📈 Bulk Price Adjustment")
             st.warning("⚠️ Warning: This will permanently change prices for ALL items in your inventory.")
             
@@ -367,17 +367,23 @@ with tab5:
                         if adj_target in ["Both Cost & Selling Price", "Only Selling Price"]: cols_to_update.append("price")
                             
                         for col in cols_to_update:
-                            if adj_type == "Percentage (%)":
-                                # Safely calculates percentage and ensures price never drops below 0
-                                query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + ({col} * %s / 100.0) AS INTEGER))"
+                            if col == "price":
+                                # Selling Price: CEIL ensures we always round UP to the next 50
+                                if adj_type == "Percentage (%)":
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(CEIL(({col} + ({col} * %s / 100.0)) / 50.0) * 50 AS INTEGER))"
+                                else:
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(CEIL(({col} + %s) / 50.0) * 50 AS INTEGER))"
                             else:
-                                # Safely adds fixed amount and ensures price never drops below 0
-                                query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + %s AS INTEGER))"
+                                # Cost Price: Standard exact math, no rounding needed
+                                if adj_type == "Percentage (%)":
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + ({col} * %s / 100.0) AS INTEGER))"
+                                else:
+                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + %s AS INTEGER))"
                             
                             c.execute(query, (adj_value,))
                             
                         conn.commit()
-                        st.success(f"✅ Successfully updated {adj_target} by {adj_value} {adj_type}!")
+                        st.success(f"✅ Successfully updated {adj_target} by {adj_value} {adj_type}! (Selling Prices rounded to next 50)")
                         time.sleep(1.5)
                         st.rerun()
                     else:
