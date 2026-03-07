@@ -183,7 +183,7 @@ with tab2:
                 if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key="cust_size")
                 else: size = size_choice
 
-            thick = st.selectbox("Thickness", ["0.5 inch", "0.8 inch", "1 inch","1.5 inch","2 inch","3 inch","4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
+            thick = st.selectbox("Thickness", ["0.5 inch","0.8 inch","1 inch","1.5 inch","2 inch","3 inch","4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
             cat = st.selectbox("Category", ["Covered", "Uncovered"]) if type_val == "Mattress" else ""
             c1, c2, c3 = st.columns(3)
             with c1: cost = st.number_input("Cost Price", min_value=0)
@@ -586,5 +586,6 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
+
 
 
