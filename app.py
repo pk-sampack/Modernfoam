@@ -216,54 +216,58 @@ with tab3:
         df_all_inv = pd.read_sql_query("SELECT * FROM inventory ORDER BY name ASC", conn)
         conn.close()
         
-        st.subheader("Add Items to Order")
-        inv_options = []
-        for _, row in df_all_inv.iterrows():
-            opt_str = f"ID:{row['id']} - {row['name']}"
-            if row['size']: opt_str += f" | {row['size']}"
-            if row['thickness']: opt_str += f" | {row['thickness']}"
-            inv_options.append(opt_str)
+        # ADDED SAFETY NET: Checks if inventory is completely empty before trying to load dropdown
+        if df_all_inv.empty:
+            st.warning("⚠️ Your inventory is currently empty! Please go to the '📦 Inventory' tab or upload your CSV to add items before creating a Purchase Order.")
+        else:
+            st.subheader("Add Items to Order")
+            inv_options = []
+            for _, row in df_all_inv.iterrows():
+                opt_str = f"ID:{row['id']} - {row['name']}"
+                if row['size']: opt_str += f" | {row['size']}"
+                if row['thickness']: opt_str += f" | {row['thickness']}"
+                inv_options.append(opt_str)
+                
+            selected_po_item_str = st.selectbox("Select Item", inv_options)
+            po_selected_id = int(selected_po_item_str.split("ID:")[1].split(" -")[0])
+            po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc[0]
             
-        selected_po_item_str = st.selectbox("Select Item", inv_options)
-        po_selected_id = int(selected_po_item_str.split("ID:")[1].split(" -")[0])
-        po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc[0]
-        
-        po_desc = f"{po_item_data['name']}"
-        if po_item_data['size']: po_desc += f" | {po_item_data['size']}"
-        if po_item_data['thickness']: po_desc += f" | {po_item_data['thickness']}"
+            po_desc = f"{po_item_data['name']}"
+            if po_item_data['size']: po_desc += f" | {po_item_data['size']}"
+            if po_item_data['thickness']: po_desc += f" | {po_item_data['thickness']}"
 
-        col_q, col_c, col_p = st.columns(3)
-        with col_q: po_qty = st.number_input("Qty to Order", min_value=1, value=10)
-        with col_c: po_cost = st.number_input("Factory Cost Price (Per Unit)", min_value=0, value=int(po_item_data['cost_price']))
-        with col_p: po_sale = st.number_input("Target Sale Price (Per Unit)", min_value=0, value=int(po_item_data['price']))
-        
-        if st.button("Add to Order"):
-            st.session_state.po_cart.append({'item_id': po_item_data['id'], 'desc': po_desc, 'qty': po_qty, 'cost': po_cost, 'sale': po_sale, 'total': po_qty * po_cost})
-            st.rerun()
-
-        if st.session_state.po_cart:
-            st.markdown("---")
-            po_cart_df = pd.DataFrame(st.session_state.po_cart)
-            st.dataframe(po_cart_df[['desc', 'qty', 'cost', 'sale', 'total']], use_container_width=True)
-            po_grand_total = sum(item['total'] for item in st.session_state.po_cart)
-            st.subheader(f"Total Order Est. Cost: {format_currency(po_grand_total)}")
+            col_q, col_c, col_p = st.columns(3)
+            with col_q: po_qty = st.number_input("Qty to Order", min_value=1, value=10)
+            with col_c: po_cost = st.number_input("Factory Cost Price (Per Unit)", min_value=0, value=int(po_item_data['cost_price']))
+            with col_p: po_sale = st.number_input("Target Sale Price (Per Unit)", min_value=0, value=int(po_item_data['price']))
             
-            if st.button("Submit Purchase Order"):
-                if not supplier: st.error("Please enter a supplier name.")
-                else:
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    date_now = datetime.now().strftime("%Y-%m-%d")
-                    c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", (date_now, supplier, "Structured PO", int(po_grand_total), "Pending"))
-                    new_po_id = c.fetchone()[0]
-                    for item in st.session_state.po_cart:
-                        c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)", (int(new_po_id), int(item['item_id']), item['desc'], int(item['qty']), int(item['cost']), int(item['sale'])))
-                    conn.commit()
-                    conn.close()
-                    st.session_state.po_cart = []
-                    st.success(f"✅ Purchase Order #{new_po_id} Generated Successfully!")
-                    time.sleep(1.5)
-                    st.rerun()
+            if st.button("Add to Order"):
+                st.session_state.po_cart.append({'item_id': po_item_data['id'], 'desc': po_desc, 'qty': po_qty, 'cost': po_cost, 'sale': po_sale, 'total': po_qty * po_cost})
+                st.rerun()
+
+            if st.session_state.po_cart:
+                st.markdown("---")
+                po_cart_df = pd.DataFrame(st.session_state.po_cart)
+                st.dataframe(po_cart_df[['desc', 'qty', 'cost', 'sale', 'total']], use_container_width=True)
+                po_grand_total = sum(item['total'] for item in st.session_state.po_cart)
+                st.subheader(f"Total Order Est. Cost: {format_currency(po_grand_total)}")
+                
+                if st.button("Submit Purchase Order"):
+                    if not supplier: st.error("Please enter a supplier name.")
+                    else:
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        date_now = datetime.now().strftime("%Y-%m-%d")
+                        c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", (date_now, supplier, "Structured PO", int(po_grand_total), "Pending"))
+                        new_po_id = c.fetchone()[0]
+                        for item in st.session_state.po_cart:
+                            c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)", (int(new_po_id), int(item['item_id']), item['desc'], int(item['qty']), int(item['cost']), int(item['sale'])))
+                        conn.commit()
+                        conn.close()
+                        st.session_state.po_cart = []
+                        st.success(f"✅ Purchase Order #{new_po_id} Generated Successfully!")
+                        time.sleep(1.5)
+                        st.rerun()
 
     elif po_action == "📥 Receive PO Items":
         conn = get_db_connection()
@@ -546,49 +550,26 @@ with tab5:
 
             st.markdown("---")
             
-            # --- NEW: CSV EXPORT AND IMPORT ---
             st.subheader("📁 CSV Bulk Export / Import")
             st.write("Download your entire inventory, make changes in Excel, and upload it back to update everything at once.")
             
-            # 1. EXPORT BUTTON
             df_inv_export = pd.read_sql_query("SELECT * FROM inventory ORDER BY id ASC", conn)
             csv_data = df_inv_export.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="⬇️ Download Inventory (CSV)", 
-                data=csv_data, 
-                file_name=f"modern_foam_inventory_{today_str}.csv", 
-                mime="text/csv"
-            )
+            st.download_button(label="⬇️ Download Inventory (CSV)", data=csv_data, file_name=f"modern_foam_inventory_{today_str}.csv", mime="text/csv")
             
-            # 2. IMPORT UPLOADER
             uploaded_file = st.file_uploader("⬆️ Upload Modified CSV to Update Inventory", type=["csv"])
             if uploaded_file is not None:
                 if st.button("Process CSV Update"):
                     try:
                         df_upload = pd.read_csv(uploaded_file)
-                        
-                        # Clean up NaN values created by empty Excel cells
-                        df_upload.fillna({
-                            'item_type': '', 'name': '', 'size': '', 'thickness': '', 
-                            'category': '', 'cost_price': 0, 'price': 0, 'quantity': 0
-                        }, inplace=True)
-                        
+                        df_upload.fillna({'item_type': '', 'name': '', 'size': '', 'thickness': '', 'category': '', 'cost_price': 0, 'price': 0, 'quantity': 0}, inplace=True)
                         c = conn.cursor()
                         for _, row in df_upload.iterrows():
                             item_id = row.get('id')
-                            
-                            # If ID exists, UPDATE the item
                             if pd.notna(item_id) and str(item_id).strip() != "":
-                                c.execute('''UPDATE inventory 
-                                             SET item_type=%s, name=%s, size=%s, thickness=%s, category=%s, price=%s, cost_price=%s, quantity=%s 
-                                             WHERE id=%s''', 
-                                          (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity']), int(item_id)))
-                            # If ID is blank, INSERT as a new item
+                                c.execute('''UPDATE inventory SET item_type=%s, name=%s, size=%s, thickness=%s, category=%s, price=%s, cost_price=%s, quantity=%s WHERE id=%s''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity']), int(item_id)))
                             else:
-                                c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) 
-                                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', 
-                                          (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity'])))
-                        
+                                c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity'])))
                         conn.commit()
                         st.success("✅ Inventory successfully updated from CSV!")
                         time.sleep(1.5)
