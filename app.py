@@ -13,19 +13,17 @@ st.set_page_config(page_title="Modern Foam Center POS", page_icon="🟩", layout
 
 st.markdown("""
     <style>
+    :root { color-scheme: light; }
     .stApp { background-color: #F8FAF8; }
-    h1, h2, h3 { color: #006600; font-family: sans-serif; }
-    .stButton>button { background-color: #008000; color: white; border-radius: 8px; border: none; font-weight: bold; width: 100%; }
-    .stButton>button:hover { background-color: #005500; color: white; }
-    .whatsapp-btn { background-color: #25D366; color: white; padding: 10px; text-align: center; border-radius: 8px; text-decoration: none; display: block; font-weight: bold; margin-top: 10px; }
-    .metric-card { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
-    .print-receipt { background: white; padding: 20px; border: 1px solid #ddd; border-radius: 5px; color: black; font-family: monospace; }
+    [data-testid="stAppViewContainer"] * { color: #222222 !important; }
+    h1, h2, h3 { color: #006600 !important; font-family: sans-serif; }
+    .stButton>button { background-color: #008000 !important; border-radius: 8px; border: none; font-weight: bold; width: 100%; }
+    .stButton>button * { color: white !important; }
+    .whatsapp-btn { background-color: #25D366 !important; color: white !important; padding: 10px; text-align: center; border-radius: 8px; text-decoration: none; display: block; font-weight: bold; margin-top: 10px; }
+    .metric-card { background-color: white !important; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
     </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 2. DATABASE SETUP (SUPABASE / POSTGRESQL)
-# ==========================================
 DB_URL = st.secrets.get("DATABASE_URL", "postgresql://postgres.bhtuuwiyncwifnxupgsl:SmwlmGPdChstQmwY@aws-1-ap-south-1.pooler.supabase.com:6543/postgres")
 
 def get_db_connection():
@@ -41,7 +39,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS sale_items (id SERIAL PRIMARY KEY, sale_id INTEGER, item_desc TEXT, price INTEGER, cost_price INTEGER DEFAULT 0, qty INTEGER, item_id INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, date TEXT, description TEXT, amount INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS purchase_orders (id SERIAL PRIMARY KEY, date TEXT, supplier TEXT, details TEXT, total_cost INTEGER, status TEXT DEFAULT 'Pending')''')
-    # NEW TABLE FOR ADVANCED PO TRACKING
     c.execute('''CREATE TABLE IF NOT EXISTS po_items (id SERIAL PRIMARY KEY, po_id INTEGER, item_id INTEGER, item_desc TEXT, qty_ordered INTEGER, qty_received INTEGER DEFAULT 0, cost_price INTEGER, sale_price INTEGER)''')
     conn.close()
 
@@ -52,9 +49,6 @@ if 'po_cart' not in st.session_state: st.session_state.po_cart = []
 
 def format_currency(amount): return f"PKR {amount:,.0f}"
 
-# ==========================================
-# 3. MAIN UI
-# ==========================================
 st.markdown("""
     <div style="text-align: center; padding-top: 10px; padding-bottom: 20px;">
         <img src="https://raw.githubusercontent.com/pk-sampack/Modernfoam/main/MODERN%20FOAM.png" width="120" style="margin-bottom: 10px;">
@@ -69,7 +63,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛒 POS & Returns", "📦 Inventory", 
 # ------------------------------------------
 with tab1:
     pos_mode = st.radio("Mode", ["New Sale", "Process Return"], horizontal=True)
-    
     if pos_mode == "New Sale":
         st.header("New Cash Sale")
         conn = get_db_connection()
@@ -81,8 +74,7 @@ with tab1:
         else:
             options = []
             for _, row in df_inv.iterrows():
-                if row['item_type'] == 'Mattress':
-                    desc = f"{row['name']} | {row['size']} | {row['thickness']}"
+                if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
                 else:
                     size_text = f" | {row['size']}" if row['size'] else ""
                     desc = f"{row['name']}{size_text}"
@@ -92,25 +84,15 @@ with tab1:
             selected_id = int(selected_item_str.split("ID:")[1].split(" - ")[0])
             item_data = df_inv[df_inv['id'] == selected_id].iloc[0]
             
-            if item_data['item_type'] == 'Mattress':
-                cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
-            else:
-                cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
+            if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
+            else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
             
             col1, col2 = st.columns([3, 1])
             with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
             with col2:
-                st.write("")
-                st.write("")
+                st.write(""); st.write("")
                 if st.button("Add to Bill"):
-                    st.session_state.cart.append({
-                        'id': item_data['id'], 
-                        'desc': cart_desc, 
-                        'price': item_data['price'], 
-                        'cost_price': item_data['cost_price'],
-                        'qty': qty_to_buy, 
-                        'total': item_data['price'] * qty_to_buy
-                    })
+                    st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
                     st.rerun()
 
         if st.session_state.cart:
@@ -141,14 +123,12 @@ with tab1:
                 conn = get_db_connection()
                 c = conn.cursor()
                 date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
                 c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, int(final_total)))
                 sale_id = c.fetchone()[0]
                 
                 receipt_items_text = ""
                 for item in st.session_state.cart:
-                    c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)",
-                              (int(sale_id), item['desc'], int(item['price']), int(item['cost_price']), int(item['qty']), int(item['id'])))
+                    c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)", (int(sale_id), item['desc'], int(item['price']), int(item['cost_price']), int(item['qty']), int(item['id'])))
                     c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (int(item['qty']), int(item['id'])))
                     receipt_items_text += f"- {item['qty']}x {item['desc']}\n"
                     
@@ -157,16 +137,13 @@ with tab1:
                 st.session_state.cart = []
                 
                 wa_text = f"*Modern Foam Center Receipt*\n\nItems:\n{receipt_items_text}\n"
-                if discount_type != "None" and discount_value > 0:
-                    wa_text += f"Subtotal: {format_currency(grand_total)}\n{discount_text}\n"
+                if discount_type != "None" and discount_value > 0: wa_text += f"Subtotal: {format_currency(grand_total)}\n{discount_text}\n"
                 wa_text += f"*Total: {format_currency(final_total)}*\nPayment: Cash\n\nThank you for your purchase!"
-                
                 encoded_text = urllib.parse.quote(wa_text)
                 wa_link = f"https://wa.me/{cust_phone}?text={encoded_text}" if cust_phone else f"https://wa.me/?text={encoded_text}"
                 
                 st.success(f"Sale #{sale_id} Completed Successfully!")
                 st.markdown(f'<a href="{wa_link}" target="_blank" class="whatsapp-btn">📱 Send WhatsApp / SMS Receipt</a>', unsafe_allow_html=True)
-                
                 if st.button("Start Next Sale"): st.rerun()
 
     elif pos_mode == "Process Return":
@@ -208,7 +185,6 @@ with tab2:
 
             thick = st.selectbox("Thickness", ["0.5 inch","1 inch","1.5 inch","2 inch","3 inch","4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
             cat = st.selectbox("Category", ["Covered", "Uncovered"]) if type_val == "Mattress" else ""
-            
             c1, c2, c3 = st.columns(3)
             with c1: cost = st.number_input("Cost Price", min_value=0)
             with c2: price = st.number_input("Selling Price", min_value=0)
@@ -232,11 +208,10 @@ with tab2:
 # ------------------------------------------
 with tab3:
     st.header("📝 Purchase Order Management")
-    po_action = st.radio("Action", ["➕ Create New PO", "📥 Receive PO Items", "🖨️ Print PO"], horizontal=True)
+    po_action = st.radio("Action", ["➕ Create New PO", "📥 Receive PO Items", "⚙️ Manage POs (Edit/Delete)", "🖨️ Print PO"], horizontal=True)
     
     if po_action == "➕ Create New PO":
         supplier = st.text_input("Supplier/Factory Name (e.g., Diamond Foam Factory)")
-        
         conn = get_db_connection()
         df_all_inv = pd.read_sql_query("SELECT * FROM inventory ORDER BY name ASC", conn)
         conn.close()
@@ -263,14 +238,7 @@ with tab3:
         with col_p: po_sale = st.number_input("Target Sale Price (Per Unit)", min_value=0, value=int(po_item_data['price']))
         
         if st.button("Add to Order"):
-            st.session_state.po_cart.append({
-                'item_id': po_item_data['id'],
-                'desc': po_desc,
-                'qty': po_qty,
-                'cost': po_cost,
-                'sale': po_sale,
-                'total': po_qty * po_cost
-            })
+            st.session_state.po_cart.append({'item_id': po_item_data['id'], 'desc': po_desc, 'qty': po_qty, 'cost': po_cost, 'sale': po_sale, 'total': po_qty * po_cost})
             st.rerun()
 
         if st.session_state.po_cart:
@@ -281,22 +249,15 @@ with tab3:
             st.subheader(f"Total Order Est. Cost: {format_currency(po_grand_total)}")
             
             if st.button("Submit Purchase Order"):
-                if not supplier:
-                    st.error("Please enter a supplier name.")
+                if not supplier: st.error("Please enter a supplier name.")
                 else:
                     conn = get_db_connection()
                     c = conn.cursor()
                     date_now = datetime.now().strftime("%Y-%m-%d")
-                    # Save PO main record
-                    c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", 
-                              (date_now, supplier, "Structured PO", int(po_grand_total), "Pending"))
+                    c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", (date_now, supplier, "Structured PO", int(po_grand_total), "Pending"))
                     new_po_id = c.fetchone()[0]
-                    
-                    # Save individual PO items
                     for item in st.session_state.po_cart:
-                        c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)",
-                                  (int(new_po_id), int(item['item_id']), item['desc'], int(item['qty']), int(item['cost']), int(item['sale'])))
-                        
+                        c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)", (int(new_po_id), int(item['item_id']), item['desc'], int(item['qty']), int(item['cost']), int(item['sale'])))
                     conn.commit()
                     conn.close()
                     st.session_state.po_cart = []
@@ -307,17 +268,11 @@ with tab3:
     elif po_action == "📥 Receive PO Items":
         conn = get_db_connection()
         df_pending_pos = pd.read_sql_query("SELECT * FROM purchase_orders WHERE status != 'Completed' ORDER BY id DESC", conn)
-        
-        if df_pending_pos.empty:
-            st.info("No pending purchase orders available to receive.")
+        if df_pending_pos.empty: st.info("No pending purchase orders available to receive.")
         else:
-            po_list = []
-            for _, row in df_pending_pos.iterrows():
-                po_list.append(f"PO #{row['id']} - {row['supplier']} ({row['status']})")
-                
+            po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_pending_pos.iterrows()]
             selected_recv_str = st.selectbox("Select Purchase Order to Receive", po_list)
             recv_po_id = int(selected_recv_str.split("PO #")[1].split(" -")[0])
-            
             df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {recv_po_id}", conn)
             
             if df_po_items.empty:
@@ -345,22 +300,81 @@ with tab3:
                         for po_item_id, data in receive_data.items():
                             if data['qty_to_recv'] > 0:
                                 total_received_updates += data['qty_to_recv']
-                                # 1. Update po_items receipt count
                                 c.execute("UPDATE po_items SET qty_received = qty_received + %s WHERE id = %s", (int(data['qty_to_recv']), int(po_item_id)))
-                                # 2. Restock Inventory and update Cost/Sale prices to match PO
-                                c.execute("UPDATE inventory SET quantity = quantity + %s, cost_price = %s, price = %s WHERE id = %s", 
-                                          (int(data['qty_to_recv']), int(data['cost']), int(data['sale']), int(data['item_id'])))
+                                c.execute("UPDATE inventory SET quantity = quantity + %s, cost_price = %s, price = %s WHERE id = %s", (int(data['qty_to_recv']), int(data['cost']), int(data['sale']), int(data['item_id'])))
                         
-                        # 3. Check if whole PO is completed
                         c.execute("SELECT SUM(qty_ordered), SUM(qty_received) FROM po_items WHERE po_id = %s", (recv_po_id,))
                         sums = c.fetchone()
-                        if sums[0] == sums[1]:
-                            c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
-                        elif total_received_updates > 0:
-                            c.execute("UPDATE purchase_orders SET status = 'Partially Received' WHERE id = %s", (recv_po_id,))
-                            
+                        if sums[0] == sums[1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
+                        elif total_received_updates > 0: c.execute("UPDATE purchase_orders SET status = 'Partially Received' WHERE id = %s", (recv_po_id,))
                         conn.commit()
                         st.success("✅ Inventory restocked and PO updated!")
+                        time.sleep(1.5)
+                        st.rerun()
+        conn.close()
+
+    elif po_action == "⚙️ Manage POs (Edit/Delete)":
+        conn = get_db_connection()
+        df_all_pos = pd.read_sql_query("SELECT * FROM purchase_orders ORDER BY id DESC", conn)
+        if df_all_pos.empty: st.info("No purchase orders found in the system.")
+        else:
+            po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_all_pos.iterrows()]
+            selected_manage_str = st.selectbox("Select Purchase Order to Manage", po_list)
+            manage_po_id = int(selected_manage_str.split("PO #")[1].split(" -")[0])
+            
+            po_data = df_all_pos[df_all_pos['id'] == manage_po_id].iloc[0]
+            df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {manage_po_id}", conn)
+            
+            st.markdown("---")
+            col_supp, col_del = st.columns([3,1])
+            with col_supp:
+                new_supplier = st.text_input("Supplier Name", value=po_data['supplier'])
+            with col_del:
+                st.write("")
+                st.write("")
+                if st.button(f"🚨 Delete PO #{manage_po_id} Permanently"):
+                    c = conn.cursor()
+                    c.execute("DELETE FROM po_items WHERE po_id = %s", (manage_po_id,))
+                    c.execute("DELETE FROM purchase_orders WHERE id = %s", (manage_po_id,))
+                    conn.commit()
+                    st.success(f"PO #{manage_po_id} Deleted.")
+                    time.sleep(1.5)
+                    st.rerun()
+
+            if not df_po_items.empty:
+                st.subheader("Edit Items")
+                st.info("Note: You cannot lower the ordered quantity below what has already been received.")
+                with st.form("edit_po_form"):
+                    updated_items = {}
+                    for _, row in df_po_items.iterrows():
+                        st.markdown(f"**{row['item_desc']}** (Already Received: {row['qty_received']})")
+                        c_qty, c_cost, c_sale = st.columns(3)
+                        with c_qty: new_qty = st.number_input("Qty Ordered", min_value=int(row['qty_received']), value=int(row['qty_ordered']), key=f"eqty_{row['id']}")
+                        with c_cost: new_cost = st.number_input("Unit Cost", min_value=0, value=int(row['cost_price']), key=f"ecost_{row['id']}")
+                        with c_sale: new_sale = st.number_input("Sale Price", min_value=0, value=int(row['sale_price']), key=f"esale_{row['id']}")
+                        updated_items[row['id']] = {'qty': new_qty, 'cost': new_cost, 'sale': new_sale}
+                        
+                    if st.form_submit_button("Save PO Changes"):
+                        c = conn.cursor()
+                        total_po_cost = 0
+                        for item_id, vals in updated_items.items():
+                            c.execute("UPDATE po_items SET qty_ordered=%s, cost_price=%s, sale_price=%s WHERE id=%s", (vals['qty'], vals['cost'], vals['sale'], item_id))
+                            total_po_cost += (vals['qty'] * vals['cost'])
+                        c.execute("UPDATE purchase_orders SET supplier=%s, total_cost=%s WHERE id=%s", (new_supplier, total_po_cost, manage_po_id))
+                        conn.commit()
+                        st.success("PO Updated Successfully!")
+                        time.sleep(1.5)
+                        st.rerun()
+            else:
+                st.warning("This is a legacy PO without structured items.")
+                with st.form("legacy_edit"):
+                    new_legacy_details = st.text_area("Details", value=po_data['details'])
+                    new_legacy_cost = st.number_input("Total Cost", value=int(po_data['total_cost']))
+                    if st.form_submit_button("Update Legacy PO"):
+                        c = conn.cursor()
+                        c.execute("UPDATE purchase_orders SET supplier=%s, details=%s, total_cost=%s WHERE id=%s", (new_supplier, new_legacy_details, new_legacy_cost, manage_po_id))
+                        conn.commit()
+                        st.success("Legacy PO Updated!")
                         time.sleep(1.5)
                         st.rerun()
         conn.close()
@@ -373,59 +387,53 @@ with tab3:
             po_print_list = [f"PO #{row['id']} - {row['supplier']} - {row['date']}" for _, row in df_all_pos.iterrows()]
             selected_print_str = st.selectbox("Select PO to Print", po_print_list)
             print_po_id = int(selected_print_str.split("PO #")[1].split(" -")[0])
-            
             df_print_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {print_po_id}", conn)
             po_data = df_all_pos[df_all_pos['id'] == print_po_id].iloc[0]
             
-            # Create a clean printable HTML block
-            html_content = f"""
-            <div class="print-receipt" id="printableArea">
-                <h2 style="text-align: center;">MODERN FOAM CENTER</h2>
-                <h3 style="text-align: center;">PURCHASE ORDER</h3>
-                <hr>
-                <p><strong>PO Number:</strong> #{po_data['id']}</p>
-                <p><strong>Date:</strong> {po_data['date']}</p>
-                <p><strong>Supplier:</strong> {po_data['supplier']}</p>
-                <p><strong>Status:</strong> {po_data['status']}</p>
-                <hr>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr style="border-bottom: 1px solid black; text-align: left;">
-                        <th>Description</th>
-                        <th>Qty Ordered</th>
-                        <th>Unit Cost</th>
-                        <th>Total Cost</th>
-                    </tr>
+            print_html = f"""
+            <html>
+            <head>
+            <style>
+                body {{ font-family: sans-serif; padding: 20px; color: black; background: white; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }}
+                th {{ background-color: #f2f2f2; font-weight: bold; }}
+                .header-box {{ text-align: center; margin-bottom: 20px; }}
+                .info-box {{ margin-bottom: 20px; font-size: 15px; }}
+                @media print {{ .no-print {{ display: none; }} body {{ padding: 0; }} }}
+            </style>
+            </head>
+            <body>
+                <button class="no-print" onclick="window.print()" style="background:#008000; color:white; padding:15px; border:none; border-radius:8px; cursor:pointer; width:100%; font-size:18px; font-weight:bold; margin-bottom:20px;">🖨️ Click Here to Print Order</button>
+                <div class="header-box">
+                    <h2 style="color: #006600; margin-bottom: 5px; font-size: 28px;">MODERN FOAM CENTER</h2>
+                    <h3 style="margin-top: 0; color: #333; font-size: 20px;">PURCHASE ORDER</h3>
+                </div>
+                <div class="info-box">
+                    <strong>PO Number:</strong> #{po_data['id']}<br>
+                    <strong>Date:</strong> {po_data['date']}<br>
+                    <strong>Supplier:</strong> {po_data['supplier']}<br>
+                    <strong>Status:</strong> {po_data['status']}
+                </div>
+                <table>
+                    <tr><th>Description</th><th>Qty Ordered</th><th>Unit Cost (PKR)</th><th>Total Cost (PKR)</th></tr>
             """
             
             if not df_print_items.empty:
                 for _, item in df_print_items.iterrows():
-                    html_content += f"""
-                    <tr>
-                        <td style="padding: 8px 0;">{item['item_desc']}</td>
-                        <td>{item['qty_ordered']}</td>
-                        <td>{item['cost_price']}</td>
-                        <td>{item['qty_ordered'] * item['cost_price']}</td>
-                    </tr>
-                    """
+                    row_total = int(item['qty_ordered'] * item['cost_price'])
+                    print_html += f"<tr><td>{item['item_desc']}</td><td>{item['qty_ordered']}</td><td>{int(item['cost_price'])}</td><td>{row_total}</td></tr>"
             else:
-                html_content += f"<tr><td colspan='4'>{po_data['details']}</td></tr>"
+                legacy_details = str(po_data['details']).replace('\n', '<br>')
+                print_html += f"<tr><td colspan='4' style='line-height: 1.8;'>{legacy_details}</td></tr>"
                 
-            html_content += f"""
+            print_html += f"""
                 </table>
-                <hr>
-                <h3 style="text-align: right;">Total Estimated Cost: PKR {po_data['total_cost']}</h3>
-            </div>
-            <br>
+                <h3 style="text-align: right; margin-top: 20px; font-size: 18px;">Total Estimated Cost: {format_currency(int(po_data['total_cost']))}</h3>
+            </body>
+            </html>
             """
-            st.markdown(html_content, unsafe_allow_html=True)
-            
-            # Javascript Print Button
-            components.html(
-                """
-                <button onclick="window.parent.print()" style="background-color: #008000; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%;">🖨️ Click to Print Order</button>
-                """,
-                height=50
-            )
+            components.html(print_html, height=700, scrolling=True)
         conn.close()
 
 # ------------------------------------------
@@ -451,17 +459,14 @@ with tab4:
 # ------------------------------------------
 with tab5:
     st.header("📊 Admin, P&L & Reports")
-    
     today_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
     
-    # --- 1. DAILY P&L CALCULATIONS ---
     rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc[0]['t']
     cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date LIKE %s AND s.status='Completed'", conn, params=(today_str+'%',)).iloc[0]['c']
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc[0]['e']
     net = rev - cogs - exp
     
-    # --- 2. TOTAL STOCK VALUATION ---
     val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc[0]
     total_stock_cost = val_query['total_cost']
     total_stock_retail = val_query['total_retail']
@@ -483,7 +488,6 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
-            # --- DELETE SALE SECTION ---
             st.subheader("🗑️ Edit/Delete Today's Sales")
             df_todays_sales = pd.read_sql_query("SELECT * FROM sales WHERE date LIKE %s", conn, params=(today_str+'%',))
             st.dataframe(df_todays_sales)
@@ -494,25 +498,19 @@ with tab5:
                     c = conn.cursor()
                     c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (int(del_id),))
                     items_to_restock = c.fetchall()
-                    
                     if items_to_restock:
-                        for row in items_to_restock:
-                            c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row[1]), int(row[0])))
-                        
+                        for row in items_to_restock: c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row[1]), int(row[0])))
                         c.execute("DELETE FROM sale_items WHERE sale_id=%s", (int(del_id),))
                         c.execute("DELETE FROM sales WHERE id=%s", (int(del_id),))
                         conn.commit()
                         st.success(f"✅ Sale #{del_id} deleted and items restocked!")
                         time.sleep(1.5)
                         st.rerun()
-                    else:
-                        st.error(f"⚠️ Sale #{del_id} not found. It may have already been deleted!")
-                else:
-                    st.warning("Please enter a valid Sale ID.")
+                    else: st.error(f"⚠️ Sale #{del_id} not found. It may have already been deleted!")
+                else: st.warning("Please enter a valid Sale ID.")
             
             st.markdown("---")
             
-            # --- BULK PRICE ADJUSTMENT ---
             st.subheader("📈 Bulk Price Adjustment")
             with st.form("bulk_price_form"):
                 adj_target = st.selectbox("What do you want to update?", ["Both Cost & Selling Price", "Only Selling Price", "Only Cost Price"])
@@ -539,12 +537,10 @@ with tab5:
                         st.success(f"✅ Successfully updated {adj_target}!")
                         time.sleep(1.5)
                         st.rerun()
-                    else:
-                        st.error("Please enter a value other than 0.")
+                    else: st.error("Please enter a value other than 0.")
 
             st.markdown("---")
             
-            # --- EDIT OR DELETE SINGLE INVENTORY ITEM ---
             st.subheader("✏️ Edit or Delete Inventory Item")
             df_inv_admin = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
             
@@ -570,14 +566,12 @@ with tab5:
                     
                     if st.form_submit_button("Update Item"):
                         c = conn.cursor()
-                        c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', 
-                                  (edit_name, edit_size, int(edit_cost), int(edit_price), int(edit_qty), int(selected_edit_id)))
+                        c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', (edit_name, edit_size, int(edit_cost), int(edit_price), int(edit_qty), int(selected_edit_id)))
                         conn.commit()
                         st.success(f"✅ Item updated successfully!")
                         time.sleep(1.5)
                         st.rerun()
                         
-                # PERMANENT DELETE BUTTON
                 st.write("")
                 if st.button(f"🚨 Delete '{item_to_edit['name']}' Permanently"):
                     c = conn.cursor()
@@ -586,8 +580,7 @@ with tab5:
                     st.success("✅ Item permanently deleted from inventory.")
                     time.sleep(1.5)
                     st.rerun()
-            else:
-                st.info("Inventory is currently empty.")
+            else: st.info("Inventory is currently empty.")
                 
         elif pwd != "":
             st.error("Incorrect Password")
