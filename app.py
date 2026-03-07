@@ -76,7 +76,6 @@ with tab1:
         else:
             options = []
             for _, row in df_inv.iterrows():
-                # ADDED THICKNESS TO THE DESCRIPTION
                 if row['item_type'] == 'Mattress':
                     desc = f"{row['name']} | {row['size']} | {row['thickness']}"
                 else:
@@ -89,7 +88,6 @@ with tab1:
             selected_id = int(selected_item_str.split("ID:")[1].split(" - ")[0])
             item_data = df_inv[df_inv['id'] == selected_id].iloc[0]
             
-            # Reconstruct the exact description for the cart to ensure it saves correctly
             if item_data['item_type'] == 'Mattress':
                 cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
             else:
@@ -233,7 +231,6 @@ with tab3:
     supplier = st.text_input("Supplier/Factory Name (e.g., Diamond Foam Factory)")
     
     conn = get_db_connection()
-    # ADDED THICKNESS TO PO QUERY
     df_all_inv = pd.read_sql_query("SELECT name, size, thickness FROM inventory", conn)
     conn.close()
     
@@ -293,16 +290,29 @@ with tab5:
     
     today_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
+    
+    # --- 1. DAILY P&L CALCULATIONS ---
     rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc[0]['t']
     cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date LIKE %s AND s.status='Completed'", conn, params=(today_str+'%',)).iloc[0]['c']
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc[0]['e']
-    
     net = rev - cogs - exp
     
+    # --- 2. NEW: TOTAL STOCK VALUATION ---
+    val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc[0]
+    total_stock_cost = val_query['total_cost']
+    total_stock_retail = val_query['total_retail']
+    
+    # Display Daily Flow
     colA, colB, colC = st.columns(3)
     colA.metric("Today's Cash (Revenue)", format_currency(int(rev)))
     colB.metric("Today's Expenses", format_currency(int(exp)))
     colC.metric("Net Profit Today", format_currency(int(net)))
+    
+    # Display Asset Valuation
+    st.markdown("<br>", unsafe_allow_html=True)
+    colD, colE = st.columns(2)
+    colD.markdown(f"<div class='metric-card'><h4>📦 Total Inventory Value (At Cost)</h4><h2 style='color:#008000;'>{format_currency(int(total_stock_cost))}</h2></div>", unsafe_allow_html=True)
+    colE.markdown(f"<div class='metric-card'><h4>🏷️ Total Inventory Value (At Retail)</h4><h2>{format_currency(int(total_stock_retail))}</h2></div>", unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -311,6 +321,7 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
+            # --- DELETE SALE SECTION ---
             st.subheader("🗑️ Edit/Delete Today's Sales")
             df_todays_sales = pd.read_sql_query("SELECT * FROM sales WHERE date LIKE %s", conn, params=(today_str+'%',))
             st.dataframe(df_todays_sales)
@@ -339,13 +350,48 @@ with tab5:
             
             st.markdown("---")
             
-            st.subheader("✏️ Edit / Update Inventory")
+            # --- NEW: BULK PRICE ADJUSTMENT ---
+            st.subheader("📈 Bulk Price Adjustment")
+            st.warning("⚠️ Warning: This will permanently change prices for ALL items in your inventory.")
+            
+            with st.form("bulk_price_form"):
+                adj_target = st.selectbox("What do you want to update?", ["Both Cost & Selling Price", "Only Selling Price", "Only Cost Price"])
+                adj_type = st.selectbox("Adjustment Type", ["Percentage (%)", "Fixed Amount (PKR)"])
+                adj_value = st.number_input("Adjustment Value (Use negative numbers to decrease price)", value=0.0)
+                
+                if st.form_submit_button("Apply Bulk Update to All Items"):
+                    if adj_value != 0:
+                        c = conn.cursor()
+                        cols_to_update = []
+                        if adj_target in ["Both Cost & Selling Price", "Only Cost Price"]: cols_to_update.append("cost_price")
+                        if adj_target in ["Both Cost & Selling Price", "Only Selling Price"]: cols_to_update.append("price")
+                            
+                        for col in cols_to_update:
+                            if adj_type == "Percentage (%)":
+                                # Safely calculates percentage and ensures price never drops below 0
+                                query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + ({col} * %s / 100.0) AS INTEGER))"
+                            else:
+                                # Safely adds fixed amount and ensures price never drops below 0
+                                query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + %s AS INTEGER))"
+                            
+                            c.execute(query, (adj_value,))
+                            
+                        conn.commit()
+                        st.success(f"✅ Successfully updated {adj_target} by {adj_value} {adj_type}!")
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error("Please enter a value other than 0.")
+
+            st.markdown("---")
+            
+            # --- EDIT SINGLE INVENTORY ITEM ---
+            st.subheader("✏️ Edit / Update Single Item")
             df_inv_admin = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
             
             if not df_inv_admin.empty:
                 inv_edit_options = []
                 for _, row in df_inv_admin.iterrows():
-                    # ADDED THICKNESS TO ADMIN EDITOR
                     opt_str = f"ID: {row['id']} | {row['name']}"
                     if row['size']: opt_str += f" | {row['size']}"
                     if row['thickness']: opt_str += f" | {row['thickness']}"
@@ -382,6 +428,3 @@ with tab5:
             st.error("Incorrect Password")
             
     conn.close()
-
-
-
