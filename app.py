@@ -524,7 +524,6 @@ with tab5:
                         if adj_target in ["Both Cost & Selling Price", "Only Cost Price"]: cols_to_update.append("cost_price")
                         if adj_target in ["Both Cost & Selling Price", "Only Selling Price"]: cols_to_update.append("price")
                             
-                        # PERFECTLY INDENTED LOOP
                         for col in cols_to_update:
                             if col == "price":
                                 if adj_type == "Percentage (%)":
@@ -547,7 +546,59 @@ with tab5:
 
             st.markdown("---")
             
-            st.subheader("✏️ Edit or Delete Inventory Item")
+            # --- NEW: CSV EXPORT AND IMPORT ---
+            st.subheader("📁 CSV Bulk Export / Import")
+            st.write("Download your entire inventory, make changes in Excel, and upload it back to update everything at once.")
+            
+            # 1. EXPORT BUTTON
+            df_inv_export = pd.read_sql_query("SELECT * FROM inventory ORDER BY id ASC", conn)
+            csv_data = df_inv_export.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Download Inventory (CSV)", 
+                data=csv_data, 
+                file_name=f"modern_foam_inventory_{today_str}.csv", 
+                mime="text/csv"
+            )
+            
+            # 2. IMPORT UPLOADER
+            uploaded_file = st.file_uploader("⬆️ Upload Modified CSV to Update Inventory", type=["csv"])
+            if uploaded_file is not None:
+                if st.button("Process CSV Update"):
+                    try:
+                        df_upload = pd.read_csv(uploaded_file)
+                        
+                        # Clean up NaN values created by empty Excel cells
+                        df_upload.fillna({
+                            'item_type': '', 'name': '', 'size': '', 'thickness': '', 
+                            'category': '', 'cost_price': 0, 'price': 0, 'quantity': 0
+                        }, inplace=True)
+                        
+                        c = conn.cursor()
+                        for _, row in df_upload.iterrows():
+                            item_id = row.get('id')
+                            
+                            # If ID exists, UPDATE the item
+                            if pd.notna(item_id) and str(item_id).strip() != "":
+                                c.execute('''UPDATE inventory 
+                                             SET item_type=%s, name=%s, size=%s, thickness=%s, category=%s, price=%s, cost_price=%s, quantity=%s 
+                                             WHERE id=%s''', 
+                                          (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity']), int(item_id)))
+                            # If ID is blank, INSERT as a new item
+                            else:
+                                c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) 
+                                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', 
+                                          (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity'])))
+                        
+                        conn.commit()
+                        st.success("✅ Inventory successfully updated from CSV!")
+                        time.sleep(1.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error processing CSV. Please ensure you haven't renamed any column headers. Detail: {e}")
+
+            st.markdown("---")
+            
+            st.subheader("✏️ Edit or Delete Single Inventory Item")
             df_inv_admin = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
             
             if not df_inv_admin.empty:
