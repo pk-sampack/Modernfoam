@@ -72,28 +72,36 @@ with tab1:
         if df_inv.empty:
             st.warning("Inventory is empty.")
         else:
-            options = []
-            for _, row in df_inv.iterrows():
-                if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
-                else:
-                    size_text = f" | {row['size']}" if row['size'] else ""
-                    desc = f"{row['name']}{size_text}"
-                options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
+            # LIVE SEARCH FILTER FOR POS
+            search_term = st.text_input("🔍 Search Item (Type name or size)", "")
+            if search_term:
+                df_inv = df_inv[df_inv['name'].str.contains(search_term, case=False, na=False) | df_inv['size'].str.contains(search_term, case=False, na=False)]
+            
+            if df_inv.empty:
+                st.info("No items match your search.")
+            else:
+                options = []
+                for _, row in df_inv.iterrows():
+                    if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
+                    else:
+                        size_text = f" | {row['size']}" if row['size'] else ""
+                        desc = f"{row['name']}{size_text}"
+                    options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
+                    
+                selected_item_str = st.selectbox("Select Item", options)
+                selected_id = int(selected_item_str.split("ID:")[1].split(" - ")[0])
+                item_data = df_inv[df_inv['id'] == selected_id].iloc[0]
                 
-            selected_item_str = st.selectbox("Select Item", options)
-            selected_id = int(selected_item_str.split("ID:")[1].split(" - ")[0])
-            item_data = df_inv[df_inv['id'] == selected_id].iloc[0]
-            
-            if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
-            else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
-            
-            col1, col2 = st.columns([3, 1])
-            with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
-            with col2:
-                st.write(""); st.write("")
-                if st.button("Add to Bill"):
-                    st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
-                    st.rerun()
+                if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
+                else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
+                
+                col1, col2 = st.columns([3, 1])
+                with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
+                with col2:
+                    st.write(""); st.write("")
+                    if st.button("Add to Bill"):
+                        st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
+                        st.rerun()
 
         if st.session_state.cart:
             st.markdown("---")
@@ -200,8 +208,15 @@ with tab2:
                 st.rerun()
 
     conn = get_db_connection()
-    st.dataframe(pd.read_sql_query("SELECT id, name, size, thickness, price, quantity FROM inventory ORDER BY id DESC", conn), hide_index=True, use_container_width=True)
+    df_show_inv = pd.read_sql_query("SELECT id, name, size, thickness, price, quantity FROM inventory ORDER BY id DESC", conn)
     conn.close()
+    
+    # LIVE SEARCH FILTER FOR INVENTORY
+    search_inv = st.text_input("🔍 Search Inventory by Name or Size")
+    if search_inv:
+        df_show_inv = df_show_inv[df_show_inv['name'].str.contains(search_inv, case=False, na=False) | df_show_inv['size'].str.contains(search_inv, case=False, na=False)]
+        
+    st.dataframe(df_show_inv, hide_index=True, use_container_width=True)
 
 # ------------------------------------------
 # TAB 3: ADVANCED PURCHASE ORDERS 
@@ -216,7 +231,6 @@ with tab3:
         df_all_inv = pd.read_sql_query("SELECT * FROM inventory ORDER BY name ASC", conn)
         conn.close()
         
-        # ADDED SAFETY NET: Checks if inventory is completely empty before trying to load dropdown
         if df_all_inv.empty:
             st.warning("⚠️ Your inventory is currently empty! Please go to the '📦 Inventory' tab or upload your CSV to add items before creating a Purchase Order.")
         else:
@@ -466,24 +480,14 @@ with tab5:
     today_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
     
+    # PUBLIC VIEW: Only Today's Cash and Expenses are visible without password
+    st.subheader("Today's Overview")
     rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc[0]['t']
-    cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date LIKE %s AND s.status='Completed'", conn, params=(today_str+'%',)).iloc[0]['c']
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc[0]['e']
-    net = rev - cogs - exp
     
-    val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc[0]
-    total_stock_cost = val_query['total_cost']
-    total_stock_retail = val_query['total_retail']
-    
-    colA, colB, colC = st.columns(3)
+    colA, colB = st.columns(2)
     colA.metric("Today's Cash (Revenue)", format_currency(int(rev)))
     colB.metric("Today's Expenses", format_currency(int(exp)))
-    colC.metric("Net Profit Today", format_currency(int(net)))
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    colD, colE = st.columns(2)
-    colD.markdown(f"<div class='metric-card'><h4>📦 Total Inventory Value (At Cost)</h4><h2 style='color:#008000;'>{format_currency(int(total_stock_cost))}</h2></div>", unsafe_allow_html=True)
-    colE.markdown(f"<div class='metric-card'><h4>🏷️ Total Inventory Value (At Retail)</h4><h2>{format_currency(int(total_stock_retail))}</h2></div>", unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -491,6 +495,77 @@ with tab5:
         pwd = st.text_input("Admin Password", type="password")
         if pwd == "admin123":
             st.success("Admin Access Granted.")
+            
+            # --- 1. HIDDEN INVENTORY VALUATION ---
+            val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc[0]
+            total_stock_cost = val_query['total_cost']
+            total_stock_retail = val_query['total_retail']
+            
+            st.markdown("### 💰 Current Inventory Valuation")
+            colD, colE = st.columns(2)
+            colD.markdown(f"<div class='metric-card'><h4>📦 Total Value (At Cost)</h4><h2 style='color:#008000;'>{format_currency(int(total_stock_cost))}</h2></div>", unsafe_allow_html=True)
+            colE.markdown(f"<div class='metric-card'><h4>🏷️ Total Value (At Retail)</h4><h2>{format_currency(int(total_stock_retail))}</h2></div>", unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            # --- 2. DATE RANGE P&L AND PRODUCT REPORT ---
+            st.subheader("📅 Date Range Analytics")
+            col_sd, col_ed = st.columns(2)
+            start_date = col_sd.date_input("Start Date", datetime.now())
+            end_date = col_ed.date_input("End Date", datetime.now())
+            
+            if start_date <= end_date:
+                start_str = start_date.strftime("%Y-%m-%d") + " 00:00:00"
+                end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
+                
+                # Report Queries
+                range_rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", conn, params=(start_str, end_str)).iloc[0]['t']
+                range_cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", conn, params=(start_str, end_str)).iloc[0]['c']
+                range_exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date >= %s AND date <= %s", conn, params=(start_str, end_str)).iloc[0]['e']
+                range_net = range_rev - range_cogs - range_exp
+                
+                # Product-Wise Query
+                product_query = """
+                SELECT si.item_desc as "Product Name", 
+                       SUM(si.qty) as "Units Sold", 
+                       SUM(si.qty * si.price) as "Total Revenue", 
+                       SUM(si.qty * si.cost_price) as "Total COGS",
+                       SUM((si.qty * si.price) - (si.qty * si.cost_price)) as "Gross Profit"
+                FROM sale_items si 
+                JOIN sales s ON si.sale_id = s.id 
+                WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'
+                GROUP BY si.item_desc
+                ORDER BY "Units Sold" DESC
+                """
+                df_products = pd.read_sql_query(product_query, conn, params=(start_str, end_str))
+                
+                # Display P&L
+                st.write(f"**P&L Summary ({start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')})**")
+                pnl_data = pd.DataFrame([
+                    {"Metric": "Revenue (Sales)", "Amount": format_currency(int(range_rev))},
+                    {"Metric": "Cost of Goods Sold (COGS)", "Amount": format_currency(int(range_cogs))},
+                    {"Metric": "Gross Profit", "Amount": format_currency(int(range_rev - range_cogs))},
+                    {"Metric": "Expenses", "Amount": format_currency(int(range_exp))},
+                    {"Metric": "Net Profit", "Amount": format_currency(int(range_net))}
+                ])
+                st.dataframe(pnl_data, hide_index=True, use_container_width=True)
+                
+                # Download P&L Button
+                pnl_csv = pnl_data.to_csv(index=False).encode('utf-8')
+                st.download_button("⬇️ Download P&L Summary (CSV)", data=pnl_csv, file_name=f"PnL_{start_date}_to_{end_date}.csv", mime="text/csv")
+                
+                # Display Product-Wise
+                st.markdown("#### 🏆 Product-Wise Sales Report")
+                if not df_products.empty:
+                    st.dataframe(df_products, hide_index=True, use_container_width=True)
+                    prod_csv = df_products.to_csv(index=False).encode('utf-8')
+                    st.download_button("⬇️ Download Product Sales Report (CSV)", data=prod_csv, file_name=f"Product_Sales_{start_date}_to_{end_date}.csv", mime="text/csv")
+                else:
+                    st.info("No sales data available for this date range.")
+            else:
+                st.error("Error: Start Date must be before or equal to End Date.")
+
+            st.markdown("---")
             
             st.subheader("🗑️ Edit/Delete Today's Sales")
             df_todays_sales = pd.read_sql_query("SELECT * FROM sales WHERE date LIKE %s", conn, params=(today_str+'%',))
@@ -530,16 +605,11 @@ with tab5:
                             
                         for col in cols_to_update:
                             if col == "price":
-                                if adj_type == "Percentage (%)":
-                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(ROUND(({col} + ({col} * %s / 100.0)) / 10.0) * 10 AS INTEGER))"
-                                else:
-                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(ROUND(({col} + %s) / 10.0) * 10 AS INTEGER))"
+                                if adj_type == "Percentage (%)": query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(ROUND(({col} + ({col} * %s / 100.0)) / 10.0) * 10 AS INTEGER))"
+                                else: query = f"UPDATE inventory SET {col} = GREATEST(0, CAST(ROUND(({col} + %s) / 10.0) * 10 AS INTEGER))"
                             else:
-                                if adj_type == "Percentage (%)":
-                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + ({col} * %s / 100.0) AS INTEGER))"
-                                else:
-                                    query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + %s AS INTEGER))"
-                            
+                                if adj_type == "Percentage (%)": query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + ({col} * %s / 100.0) AS INTEGER))"
+                                else: query = f"UPDATE inventory SET {col} = GREATEST(0, CAST({col} + %s AS INTEGER))"
                             c.execute(query, (adj_value,))
                             
                         conn.commit()
