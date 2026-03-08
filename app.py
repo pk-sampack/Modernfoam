@@ -72,23 +72,24 @@ with tab1:
         if df_inv.empty:
             st.warning("Inventory is empty.")
         else:
-            # LIVE SEARCH FILTER FOR POS
-            search_term = st.text_input("🔍 Search Item (Type name or size)", "")
-            if search_term:
-                df_inv = df_inv[df_inv['name'].str.contains(search_term, case=False, na=False) | df_inv['size'].str.contains(search_term, case=False, na=False)]
+            options = []
+            for _, row in df_inv.iterrows():
+                if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
+                else:
+                    size_text = f" | {row['size']}" if row['size'] else ""
+                    desc = f"{row['name']}{size_text}"
+                options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
+                
+            # NEW: DYNAMIC SEARCH BAR
+            selected_item_str = st.selectbox(
+                "🔍 Search & Select Item (Click and type to filter dynamically)", 
+                options, 
+                index=None, 
+                placeholder="Start typing brand, size, or thickness here..."
+            )
             
-            if df_inv.empty:
-                st.info("No items match your search.")
-            else:
-                options = []
-                for _, row in df_inv.iterrows():
-                    if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
-                    else:
-                        size_text = f" | {row['size']}" if row['size'] else ""
-                        desc = f"{row['name']}{size_text}"
-                    options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
-                    
-                selected_item_str = st.selectbox("Select Item", options)
+            # Only show quantity and add to bill IF an item is selected
+            if selected_item_str:
                 selected_id = int(selected_item_str.split("ID:")[1].split(" - ")[0])
                 item_data = df_inv[df_inv['id'] == selected_id].iloc[0]
                 
@@ -211,11 +212,7 @@ with tab2:
     df_show_inv = pd.read_sql_query("SELECT id, name, size, thickness, price, quantity FROM inventory ORDER BY id DESC", conn)
     conn.close()
     
-    # LIVE SEARCH FILTER FOR INVENTORY
-    search_inv = st.text_input("🔍 Search Inventory by Name or Size")
-    if search_inv:
-        df_show_inv = df_show_inv[df_show_inv['name'].str.contains(search_inv, case=False, na=False) | df_show_inv['size'].str.contains(search_inv, case=False, na=False)]
-        
+    st.info("💡 Tip: You can click the magnifying glass icon inside the table below to quickly search your stock.")
     st.dataframe(df_show_inv, hide_index=True, use_container_width=True)
 
 # ------------------------------------------
@@ -242,22 +239,30 @@ with tab3:
                 if row['thickness']: opt_str += f" | {row['thickness']}"
                 inv_options.append(opt_str)
                 
-            selected_po_item_str = st.selectbox("Select Item", inv_options)
-            po_selected_id = int(selected_po_item_str.split("ID:")[1].split(" -")[0])
-            po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc[0]
+            # NEW: DYNAMIC SEARCH BAR FOR PO
+            selected_po_item_str = st.selectbox(
+                "🔍 Search & Select Item to Order", 
+                inv_options, 
+                index=None, 
+                placeholder="Type to search inventory dynamically..."
+            )
             
-            po_desc = f"{po_item_data['name']}"
-            if po_item_data['size']: po_desc += f" | {po_item_data['size']}"
-            if po_item_data['thickness']: po_desc += f" | {po_item_data['thickness']}"
+            if selected_po_item_str:
+                po_selected_id = int(selected_po_item_str.split("ID:")[1].split(" -")[0])
+                po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc[0]
+                
+                po_desc = f"{po_item_data['name']}"
+                if po_item_data['size']: po_desc += f" | {po_item_data['size']}"
+                if po_item_data['thickness']: po_desc += f" | {po_item_data['thickness']}"
 
-            col_q, col_c, col_p = st.columns(3)
-            with col_q: po_qty = st.number_input("Qty to Order", min_value=1, value=10)
-            with col_c: po_cost = st.number_input("Factory Cost Price (Per Unit)", min_value=0, value=int(po_item_data['cost_price']))
-            with col_p: po_sale = st.number_input("Target Sale Price (Per Unit)", min_value=0, value=int(po_item_data['price']))
-            
-            if st.button("Add to Order"):
-                st.session_state.po_cart.append({'item_id': po_item_data['id'], 'desc': po_desc, 'qty': po_qty, 'cost': po_cost, 'sale': po_sale, 'total': po_qty * po_cost})
-                st.rerun()
+                col_q, col_c, col_p = st.columns(3)
+                with col_q: po_qty = st.number_input("Qty to Order", min_value=1, value=10)
+                with col_c: po_cost = st.number_input("Factory Cost Price (Per Unit)", min_value=0, value=int(po_item_data['cost_price']))
+                with col_p: po_sale = st.number_input("Target Sale Price (Per Unit)", min_value=0, value=int(po_item_data['price']))
+                
+                if st.button("Add to Order"):
+                    st.session_state.po_cart.append({'item_id': po_item_data['id'], 'desc': po_desc, 'qty': po_qty, 'cost': po_cost, 'sale': po_sale, 'total': po_qty * po_cost})
+                    st.rerun()
 
             if st.session_state.po_cart:
                 st.markdown("---")
@@ -480,7 +485,6 @@ with tab5:
     today_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
     
-    # PUBLIC VIEW: Only Today's Cash and Expenses are visible without password
     st.subheader("Today's Overview")
     rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc[0]['t']
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc[0]['e']
@@ -496,7 +500,6 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
-            # --- 1. HIDDEN INVENTORY VALUATION ---
             val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc[0]
             total_stock_cost = val_query['total_cost']
             total_stock_retail = val_query['total_retail']
@@ -508,7 +511,6 @@ with tab5:
             
             st.markdown("---")
             
-            # --- 2. DATE RANGE P&L AND PRODUCT REPORT ---
             st.subheader("📅 Date Range Analytics")
             col_sd, col_ed = st.columns(2)
             start_date = col_sd.date_input("Start Date", datetime.now())
@@ -518,13 +520,11 @@ with tab5:
                 start_str = start_date.strftime("%Y-%m-%d") + " 00:00:00"
                 end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
                 
-                # Report Queries
                 range_rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", conn, params=(start_str, end_str)).iloc[0]['t']
                 range_cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", conn, params=(start_str, end_str)).iloc[0]['c']
                 range_exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date >= %s AND date <= %s", conn, params=(start_str, end_str)).iloc[0]['e']
                 range_net = range_rev - range_cogs - range_exp
                 
-                # Product-Wise Query
                 product_query = """
                 SELECT si.item_desc as "Product Name", 
                        SUM(si.qty) as "Units Sold", 
@@ -539,7 +539,6 @@ with tab5:
                 """
                 df_products = pd.read_sql_query(product_query, conn, params=(start_str, end_str))
                 
-                # Display P&L
                 st.write(f"**P&L Summary ({start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')})**")
                 pnl_data = pd.DataFrame([
                     {"Metric": "Revenue (Sales)", "Amount": format_currency(int(range_rev))},
@@ -549,12 +548,9 @@ with tab5:
                     {"Metric": "Net Profit", "Amount": format_currency(int(range_net))}
                 ])
                 st.dataframe(pnl_data, hide_index=True, use_container_width=True)
-                
-                # Download P&L Button
                 pnl_csv = pnl_data.to_csv(index=False).encode('utf-8')
                 st.download_button("⬇️ Download P&L Summary (CSV)", data=pnl_csv, file_name=f"PnL_{start_date}_to_{end_date}.csv", mime="text/csv")
                 
-                # Display Product-Wise
                 st.markdown("#### 🏆 Product-Wise Sales Report")
                 if not df_products.empty:
                     st.dataframe(df_products, hide_index=True, use_container_width=True)
@@ -660,34 +656,42 @@ with tab5:
                     if row['thickness']: opt_str += f" | {row['thickness']}"
                     inv_edit_options.append(opt_str)
                     
-                selected_edit_str = st.selectbox("Select Item to Edit/Delete", inv_edit_options)
-                selected_edit_id = int(selected_edit_str.split("ID: ")[1].split(" |")[0])
-                item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].iloc[0]
+                # NEW: DYNAMIC SEARCH BAR FOR ADMIN EDIT
+                selected_edit_str = st.selectbox(
+                    "Select Item to Edit/Delete", 
+                    inv_edit_options,
+                    index=None,
+                    placeholder="Type to search for item to edit..."
+                )
                 
-                with st.form("edit_inventory_form"):
-                    edit_name = st.text_input("Name", value=item_to_edit['name'])
-                    edit_size = st.text_input("Size", value=item_to_edit['size'] if item_to_edit['size'] else "")
-                    c_cost, c_price, c_qty = st.columns(3)
-                    with c_cost: edit_cost = st.number_input("Cost Price", value=int(item_to_edit['cost_price']), min_value=0)
-                    with c_price: edit_price = st.number_input("Selling Price", value=int(item_to_edit['price']), min_value=0)
-                    with c_qty: edit_qty = st.number_input("Current Quantity", value=int(item_to_edit['quantity']), min_value=0)
+                if selected_edit_str:
+                    selected_edit_id = int(selected_edit_str.split("ID: ")[1].split(" |")[0])
+                    item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].iloc[0]
                     
-                    if st.form_submit_button("Update Item"):
+                    with st.form("edit_inventory_form"):
+                        edit_name = st.text_input("Name", value=item_to_edit['name'])
+                        edit_size = st.text_input("Size", value=item_to_edit['size'] if item_to_edit['size'] else "")
+                        c_cost, c_price, c_qty = st.columns(3)
+                        with c_cost: edit_cost = st.number_input("Cost Price", value=int(item_to_edit['cost_price']), min_value=0)
+                        with c_price: edit_price = st.number_input("Selling Price", value=int(item_to_edit['price']), min_value=0)
+                        with c_qty: edit_qty = st.number_input("Current Quantity", value=int(item_to_edit['quantity']), min_value=0)
+                        
+                        if st.form_submit_button("Update Item"):
+                            c = conn.cursor()
+                            c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', (edit_name, edit_size, int(edit_cost), int(edit_price), int(edit_qty), int(selected_edit_id)))
+                            conn.commit()
+                            st.success(f"✅ Item updated successfully!")
+                            time.sleep(1.5)
+                            st.rerun()
+                            
+                    st.write("")
+                    if st.button(f"🚨 Delete '{item_to_edit['name']}' Permanently"):
                         c = conn.cursor()
-                        c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', (edit_name, edit_size, int(edit_cost), int(edit_price), int(edit_qty), int(selected_edit_id)))
+                        c.execute("DELETE FROM inventory WHERE id=%s", (int(selected_edit_id),))
                         conn.commit()
-                        st.success(f"✅ Item updated successfully!")
+                        st.success("✅ Item permanently deleted from inventory.")
                         time.sleep(1.5)
                         st.rerun()
-                        
-                st.write("")
-                if st.button(f"🚨 Delete '{item_to_edit['name']}' Permanently"):
-                    c = conn.cursor()
-                    c.execute("DELETE FROM inventory WHERE id=%s", (int(selected_edit_id),))
-                    conn.commit()
-                    st.success("✅ Item permanently deleted from inventory.")
-                    time.sleep(1.5)
-                    st.rerun()
             else: st.info("Inventory is currently empty.")
                 
         elif pwd != "":
