@@ -7,6 +7,13 @@ import time
 import streamlit.components.v1 as components
 
 # ==========================================
+# ANTI-CITATION DELETION VARIABLES
+# (Prevents chat UI from deleting bracket numbers)
+# ==========================================
+IDX_0 = 0
+IDX_1 = 1
+
+# ==========================================
 # 1. APP CONFIGURATION & THEME
 # ==========================================
 st.set_page_config(page_title="Modern Foam Center POS", page_icon="🟩", layout="wide")
@@ -97,15 +104,15 @@ with tab1:
             )
             
             if selected_item_str:
-                selected_id = safe_int(selected_item_str.split("ID:")[1].split(" - "))
+                selected_id = safe_int(selected_item_str.split("ID:")[IDX_1].split(" - ")[IDX_0])
                 
-                # EXACT FIX: Adding to extract the dictionary properly
-                item_data = df_inv[df_inv['id'] == selected_id].to_dict('records')
+                # COMPLETELY IMMUNE TO CITATION DELETION
+                item_data = df_inv[df_inv['id'] == selected_id].to_dict('records')[IDX_0]
                 
                 if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
                 else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
                 
-                col1, col2 = st.columns([3, 1])
+                col1, col2 = st.columns((3, 1))
                 max_qty = safe_int(item_data['quantity'])
                 max_qty = max_qty if max_qty > 0 else 1
                 
@@ -145,7 +152,7 @@ with tab1:
                 c = conn.cursor()
                 date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, safe_int(final_total)))
-                sale_id = c.fetchone()
+                sale_id = c.fetchone()[IDX_0]
                 
                 receipt_items_text = ""
                 for item in st.session_state.cart:
@@ -266,10 +273,8 @@ with tab3:
             )
             
             if selected_po_item_str:
-                po_selected_id = safe_int(selected_po_item_str.split("ID:")[1].split(" -"))
-                
-                # EXACT FIX: Adding here as well
-                po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].to_dict('records')
+                po_selected_id = safe_int(selected_po_item_str.split("ID:")[IDX_1].split(" -")[IDX_0])
+                po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].to_dict('records')[IDX_0]
                 
                 po_desc = f"{po_item_data['name']}"
                 if po_item_data['size']: po_desc += f" | {po_item_data['size']}"
@@ -298,7 +303,7 @@ with tab3:
                         c = conn.cursor()
                         date_now = datetime.now().strftime("%Y-%m-%d")
                         c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", (date_now, supplier, "Structured PO", safe_int(po_grand_total), "Pending"))
-                        new_po_id = c.fetchone()
+                        new_po_id = c.fetchone()[IDX_0]
                         for item in st.session_state.po_cart:
                             c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)", (safe_int(new_po_id), safe_int(item['item_id']), item['desc'], safe_int(item['qty']), safe_int(item['cost']), safe_int(item['sale'])))
                         conn.commit()
@@ -315,7 +320,7 @@ with tab3:
         else:
             po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_pending_pos.iterrows()]
             selected_recv_str = st.selectbox("Select Purchase Order to Receive", po_list)
-            recv_po_id = safe_int(selected_recv_str.split("PO #")[1].split(" -"))
+            recv_po_id = safe_int(selected_recv_str.split("PO #")[IDX_1].split(" -")[IDX_0])
             df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {recv_po_id}", conn)
             
             if df_po_items.empty:
@@ -348,7 +353,7 @@ with tab3:
                         
                         c.execute("SELECT SUM(qty_ordered), SUM(qty_received) FROM po_items WHERE po_id = %s", (recv_po_id,))
                         sums = c.fetchone()
-                        if sums and sums == sums[1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
+                        if sums and sums[IDX_0] == sums[IDX_1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
                         elif total_received_updates > 0: c.execute("UPDATE purchase_orders SET status = 'Partially Received' WHERE id = %s", (recv_po_id,))
                         conn.commit()
                         st.success("✅ Inventory restocked and PO updated!")
@@ -363,9 +368,9 @@ with tab3:
         else:
             po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_all_pos.iterrows()]
             selected_manage_str = st.selectbox("Select Purchase Order to Manage", po_list)
-            manage_po_id = safe_int(selected_manage_str.split("PO #")[1].split(" -"))
+            manage_po_id = safe_int(selected_manage_str.split("PO #")[IDX_1].split(" -")[IDX_0])
             
-            po_data = df_all_pos[df_all_pos['id'] == manage_po_id].iloc
+            po_data = df_all_pos[df_all_pos['id'] == manage_po_id].to_dict('records')[IDX_0]
             df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {manage_po_id}", conn)
             
             st.markdown("---")
@@ -429,9 +434,9 @@ with tab3:
         if not df_all_pos.empty:
             po_print_list = [f"PO #{row['id']} - {row['supplier']} - {row['date']}" for _, row in df_all_pos.iterrows()]
             selected_print_str = st.selectbox("Select PO to Print", po_print_list)
-            print_po_id = safe_int(selected_print_str.split("PO #")[1].split(" -"))
+            print_po_id = safe_int(selected_print_str.split("PO #")[IDX_1].split(" -")[IDX_0])
             df_print_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {print_po_id}", conn)
-            po_data = df_all_pos[df_all_pos['id'] == print_po_id].iloc
+            po_data = df_all_pos[df_all_pos['id'] == print_po_id].to_dict('records')[IDX_0]
             
             print_html = f"""
             <html>
@@ -509,10 +514,12 @@ with tab5:
     st.subheader("Today's Overview")
     
     c.execute("SELECT SUM(total_amount) FROM sales WHERE date LIKE %s AND status='Completed'", (today_str+'%',))
-    rev = safe_int(c.fetchone())
+    rev_row = c.fetchone()
+    rev = safe_int(rev_row[IDX_0]) if rev_row else 0
     
     c.execute("SELECT SUM(amount) FROM expenses WHERE date LIKE %s", (today_str+'%',))
-    exp = safe_int(c.fetchone())
+    exp_row = c.fetchone()
+    exp = safe_int(exp_row[IDX_0]) if exp_row else 0
     
     colA, colB = st.columns(2)
     colA.metric("Today's Cash (Revenue)", format_currency(rev))
@@ -527,8 +534,8 @@ with tab5:
             
             c.execute("SELECT SUM(quantity * cost_price), SUM(quantity * price) FROM inventory WHERE quantity > 0")
             val_result = c.fetchone()
-            total_stock_cost = safe_int(val_result) if val_result else 0
-            total_stock_retail = safe_int(val_result[1]) if val_result else 0
+            total_stock_cost = safe_int(val_result[IDX_0]) if val_result else 0
+            total_stock_retail = safe_int(val_result[IDX_1]) if val_result else 0
             
             st.markdown("### 💰 Current Inventory Valuation")
             colD, colE = st.columns(2)
@@ -547,13 +554,16 @@ with tab5:
                 end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
                 
                 c.execute("SELECT SUM(total_amount) FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", (start_str, end_str))
-                range_rev = safe_int(c.fetchone())
+                r_rev = c.fetchone()
+                range_rev = safe_int(r_rev[IDX_0]) if r_rev else 0
                 
                 c.execute("SELECT SUM(si.qty * si.cost_price) FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", (start_str, end_str))
-                range_cogs = safe_int(c.fetchone())
+                r_cogs = c.fetchone()
+                range_cogs = safe_int(r_cogs[IDX_0]) if r_cogs else 0
                 
                 c.execute("SELECT SUM(amount) FROM expenses WHERE date >= %s AND date <= %s", (start_str, end_str))
-                range_exp = safe_int(c.fetchone())
+                r_exp = c.fetchone()
+                range_exp = safe_int(r_exp[IDX_0]) if r_exp else 0
                 
                 range_net = range_rev - range_cogs - range_exp
                 
@@ -605,7 +615,7 @@ with tab5:
                     c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (safe_int(del_id),))
                     items_to_restock = c.fetchall()
                     if items_to_restock:
-                        for row in items_to_restock: c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (safe_int(row[1]), safe_int(row)))
+                        for row in items_to_restock: c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (safe_int(row[IDX_1]), safe_int(row[IDX_0])))
                         c.execute("DELETE FROM sale_items WHERE sale_id=%s", (safe_int(del_id),))
                         c.execute("DELETE FROM sales WHERE id=%s", (safe_int(del_id),))
                         conn.commit()
@@ -693,10 +703,9 @@ with tab5:
                 )
                 
                 if selected_edit_str:
-                    selected_edit_id = safe_int(selected_edit_str.split("ID: ")[1].split(" |"))
+                    selected_edit_id = safe_int(selected_edit_str.split("ID: ")[IDX_1].split(" |")[IDX_0])
                     
-                    # EXACT FIX: Adding here to extract the dictionary properly
-                    item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].to_dict('records')
+                    item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].to_dict('records')[IDX_0]
                     
                     with st.form("edit_inventory_form"):
                         edit_name = st.text_input("Name", value=item_to_edit['name'])
