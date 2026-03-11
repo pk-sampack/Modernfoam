@@ -48,7 +48,16 @@ if 'cart' not in st.session_state: st.session_state.cart = []
 if 'po_cart' not in st.session_state: st.session_state.po_cart = []
 if 'inv_clear_key' not in st.session_state: st.session_state.inv_clear_key = 0
 
-def format_currency(amount): return f"PKR {amount:,.0f}"
+# 🛡️ TITANIUM ARMOR: This function prevents ALL "NoneType" crashes forever.
+def safe_int(val):
+    try:
+        if val is None or pd.isna(val): return 0
+        return int(float(val))
+    except:
+        return 0
+
+def format_currency(amount): 
+    return f"PKR {safe_int(amount):,.0f}"
 
 st.markdown("""
     <div style="text-align: center; padding-top: 10px; padding-bottom: 20px;">
@@ -89,18 +98,22 @@ with tab1:
             )
             
             if selected_item_str:
-                selected_id = int(selected_item_str.split("ID:")[1].split(" - "))
+                selected_id = safe_int(selected_item_str.split("ID:")[1].split(" - "))
                 item_data = df_inv[df_inv['id'] == selected_id].iloc
                 
                 if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
                 else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
                 
                 col1, col2 = st.columns([3, 1])
-                with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
+                # Ensure max value is never 0 to prevent Streamlit warnings
+                max_qty = safe_int(item_data['quantity'])
+                max_qty = max_qty if max_qty > 0 else 1
+                
+                with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=max_qty, step=1)
                 with col2:
                     st.write(""); st.write("")
                     if st.button("Add to Bill"):
-                        st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
+                        st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': safe_int(item_data['price']), 'cost_price': safe_int(item_data['cost_price']), 'qty': qty_to_buy, 'total': safe_int(item_data['price']) * qty_to_buy})
                         st.rerun()
 
         if st.session_state.cart:
@@ -114,11 +127,11 @@ with tab1:
             with d_col2: discount_value = 0 if discount_type == "None" else st.number_input("Enter Discount", min_value=0)
             
             if discount_type == "Percentage (%)" and discount_value > 0:
-                discount_amount = int(grand_total * (discount_value / 100.0))
+                discount_amount = safe_int(grand_total * (discount_value / 100.0))
                 final_total = max(0, grand_total - discount_amount)
                 discount_text = f"Discount applied: {discount_value}% (- PKR {discount_amount:,.0f})"
             elif discount_type == "Flat Amount (PKR)" and discount_value > 0:
-                final_total = max(0, grand_total - discount_value)
+                final_total = max(0, grand_total - safe_int(discount_value))
                 discount_text = f"Discount applied: - PKR {discount_value:,.0f}"
             else:
                 final_total = grand_total
@@ -131,13 +144,13 @@ with tab1:
                 conn = get_db_connection()
                 c = conn.cursor()
                 date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, int(final_total)))
+                c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, safe_int(final_total)))
                 sale_id = c.fetchone()
                 
                 receipt_items_text = ""
                 for item in st.session_state.cart:
-                    c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)", (int(sale_id), item['desc'], int(item['price']), int(item['cost_price']), int(item['qty']), int(item['id'])))
-                    c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (int(item['qty']), int(item['id'])))
+                    c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)", (safe_int(sale_id), item['desc'], safe_int(item['price']), safe_int(item['cost_price']), safe_int(item['qty']), safe_int(item['id'])))
+                    c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (safe_int(item['qty']), safe_int(item['id'])))
                     receipt_items_text += f"- {item['qty']}x {item['desc']}\n"
                     
                 conn.commit()
@@ -168,8 +181,8 @@ with tab1:
                     conn = get_db_connection()
                     c = conn.cursor()
                     for _, row in df_sale.iterrows():
-                        c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row['qty']), int(row['item_id'])))
-                    c.execute("UPDATE sales SET status = 'Returned', total_amount = 0 WHERE id = %s", (int(sale_id_to_return),))
+                        c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (safe_int(row['qty']), safe_int(row['item_id'])))
+                    c.execute("UPDATE sales SET status = 'Returned', total_amount = 0 WHERE id = %s", (safe_int(sale_id_to_return),))
                     conn.commit()
                     conn.close()
                     st.success("Return Processed successfully!")
@@ -206,7 +219,7 @@ with tab2:
             else:
                 conn = get_db_connection()
                 c = conn.cursor()
-                c.execute("INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (type_val, name, size, thick, cat, int(price), int(cost), int(qty)))
+                c.execute("INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (type_val, name, size, thick, cat, safe_int(price), safe_int(cost), safe_int(qty)))
                 conn.commit()
                 conn.close()
                 st.success("✅ Item Added!")
@@ -253,7 +266,7 @@ with tab3:
             )
             
             if selected_po_item_str:
-                po_selected_id = int(selected_po_item_str.split("ID:")[1].split(" -"))
+                po_selected_id = safe_int(selected_po_item_str.split("ID:")[1].split(" -"))
                 po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc
                 
                 po_desc = f"{po_item_data['name']}"
@@ -262,8 +275,8 @@ with tab3:
 
                 col_q, col_c, col_p = st.columns(3)
                 with col_q: po_qty = st.number_input("Qty to Order", min_value=1, value=10)
-                with col_c: po_cost = st.number_input("Factory Cost Price (Per Unit)", min_value=0, value=int(po_item_data['cost_price']))
-                with col_p: po_sale = st.number_input("Target Sale Price (Per Unit)", min_value=0, value=int(po_item_data['price']))
+                with col_c: po_cost = st.number_input("Factory Cost Price (Per Unit)", min_value=0, value=safe_int(po_item_data['cost_price']))
+                with col_p: po_sale = st.number_input("Target Sale Price (Per Unit)", min_value=0, value=safe_int(po_item_data['price']))
                 
                 if st.button("Add to Order"):
                     st.session_state.po_cart.append({'item_id': po_item_data['id'], 'desc': po_desc, 'qty': po_qty, 'cost': po_cost, 'sale': po_sale, 'total': po_qty * po_cost})
@@ -282,10 +295,10 @@ with tab3:
                         conn = get_db_connection()
                         c = conn.cursor()
                         date_now = datetime.now().strftime("%Y-%m-%d")
-                        c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", (date_now, supplier, "Structured PO", int(po_grand_total), "Pending"))
+                        c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", (date_now, supplier, "Structured PO", safe_int(po_grand_total), "Pending"))
                         new_po_id = c.fetchone()
                         for item in st.session_state.po_cart:
-                            c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)", (int(new_po_id), int(item['item_id']), item['desc'], int(item['qty']), int(item['cost']), int(item['sale'])))
+                            c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)", (safe_int(new_po_id), safe_int(item['item_id']), item['desc'], safe_int(item['qty']), safe_int(item['cost']), safe_int(item['sale'])))
                         conn.commit()
                         conn.close()
                         st.session_state.po_cart = []
@@ -300,7 +313,7 @@ with tab3:
         else:
             po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_pending_pos.iterrows()]
             selected_recv_str = st.selectbox("Select Purchase Order to Receive", po_list)
-            recv_po_id = int(selected_recv_str.split("PO #")[1].split(" -"))
+            recv_po_id = safe_int(selected_recv_str.split("PO #")[1].split(" -"))
             df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {recv_po_id}", conn)
             
             if df_po_items.empty:
@@ -315,7 +328,7 @@ with tab3:
                 with st.form("receive_po_form"):
                     receive_data = {}
                     for _, row in df_po_items.iterrows():
-                        remaining = int(row['qty_ordered'] - row['qty_received'])
+                        remaining = safe_int(row['qty_ordered']) - safe_int(row['qty_received'])
                         if remaining > 0:
                             st.write(f"**{row['item_desc']}** (Ordered: {row['qty_ordered']} | Received: {row['qty_received']})")
                             recv_qty = st.number_input(f"Receive Now", min_value=0, max_value=remaining, value=remaining, key=f"recv_{row['id']}")
@@ -328,12 +341,12 @@ with tab3:
                         for po_item_id, data in receive_data.items():
                             if data['qty_to_recv'] > 0:
                                 total_received_updates += data['qty_to_recv']
-                                c.execute("UPDATE po_items SET qty_received = qty_received + %s WHERE id = %s", (int(data['qty_to_recv']), int(po_item_id)))
-                                c.execute("UPDATE inventory SET quantity = quantity + %s, cost_price = %s, price = %s WHERE id = %s", (int(data['qty_to_recv']), int(data['cost']), int(data['sale']), int(data['item_id'])))
+                                c.execute("UPDATE po_items SET qty_received = qty_received + %s WHERE id = %s", (safe_int(data['qty_to_recv']), safe_int(po_item_id)))
+                                c.execute("UPDATE inventory SET quantity = quantity + %s, cost_price = %s, price = %s WHERE id = %s", (safe_int(data['qty_to_recv']), safe_int(data['cost']), safe_int(data['sale']), safe_int(data['item_id'])))
                         
                         c.execute("SELECT SUM(qty_ordered), SUM(qty_received) FROM po_items WHERE po_id = %s", (recv_po_id,))
                         sums = c.fetchone()
-                        if sums == sums[1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
+                        if sums and sums == sums[1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
                         elif total_received_updates > 0: c.execute("UPDATE purchase_orders SET status = 'Partially Received' WHERE id = %s", (recv_po_id,))
                         conn.commit()
                         st.success("✅ Inventory restocked and PO updated!")
@@ -348,7 +361,7 @@ with tab3:
         else:
             po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_all_pos.iterrows()]
             selected_manage_str = st.selectbox("Select Purchase Order to Manage", po_list)
-            manage_po_id = int(selected_manage_str.split("PO #")[1].split(" -"))
+            manage_po_id = safe_int(selected_manage_str.split("PO #")[1].split(" -"))
             
             po_data = df_all_pos[df_all_pos['id'] == manage_po_id].iloc
             df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {manage_po_id}", conn)
@@ -377,17 +390,17 @@ with tab3:
                     for _, row in df_po_items.iterrows():
                         st.markdown(f"**{row['item_desc']}** (Already Received: {row['qty_received']})")
                         c_qty, c_cost, c_sale = st.columns(3)
-                        with c_qty: new_qty = st.number_input("Qty Ordered", min_value=int(row['qty_received']), value=int(row['qty_ordered']), key=f"eqty_{row['id']}")
-                        with c_cost: new_cost = st.number_input("Unit Cost", min_value=0, value=int(row['cost_price']), key=f"ecost_{row['id']}")
-                        with c_sale: new_sale = st.number_input("Sale Price", min_value=0, value=int(row['sale_price']), key=f"esale_{row['id']}")
+                        with c_qty: new_qty = st.number_input("Qty Ordered", min_value=safe_int(row['qty_received']), value=safe_int(row['qty_ordered']), key=f"eqty_{row['id']}")
+                        with c_cost: new_cost = st.number_input("Unit Cost", min_value=0, value=safe_int(row['cost_price']), key=f"ecost_{row['id']}")
+                        with c_sale: new_sale = st.number_input("Sale Price", min_value=0, value=safe_int(row['sale_price']), key=f"esale_{row['id']}")
                         updated_items[row['id']] = {'qty': new_qty, 'cost': new_cost, 'sale': new_sale}
                         
                     if st.form_submit_button("Save PO Changes"):
                         c = conn.cursor()
                         total_po_cost = 0
                         for item_id, vals in updated_items.items():
-                            c.execute("UPDATE po_items SET qty_ordered=%s, cost_price=%s, sale_price=%s WHERE id=%s", (vals['qty'], vals['cost'], vals['sale'], item_id))
-                            total_po_cost += (vals['qty'] * vals['cost'])
+                            c.execute("UPDATE po_items SET qty_ordered=%s, cost_price=%s, sale_price=%s WHERE id=%s", (safe_int(vals['qty']), safe_int(vals['cost']), safe_int(vals['sale']), safe_int(item_id)))
+                            total_po_cost += (safe_int(vals['qty']) * safe_int(vals['cost']))
                         c.execute("UPDATE purchase_orders SET supplier=%s, total_cost=%s WHERE id=%s", (new_supplier, total_po_cost, manage_po_id))
                         conn.commit()
                         st.success("PO Updated Successfully!")
@@ -397,10 +410,10 @@ with tab3:
                 st.warning("This is a legacy PO without structured items.")
                 with st.form("legacy_edit"):
                     new_legacy_details = st.text_area("Details", value=po_data['details'])
-                    new_legacy_cost = st.number_input("Total Cost", value=int(po_data['total_cost']))
+                    new_legacy_cost = st.number_input("Total Cost", value=safe_int(po_data['total_cost']))
                     if st.form_submit_button("Update Legacy PO"):
                         c = conn.cursor()
-                        c.execute("UPDATE purchase_orders SET supplier=%s, details=%s, total_cost=%s WHERE id=%s", (new_supplier, new_legacy_details, new_legacy_cost, manage_po_id))
+                        c.execute("UPDATE purchase_orders SET supplier=%s, details=%s, total_cost=%s WHERE id=%s", (new_supplier, new_legacy_details, safe_int(new_legacy_cost), manage_po_id))
                         conn.commit()
                         st.success("Legacy PO Updated!")
                         time.sleep(1.5)
@@ -414,7 +427,7 @@ with tab3:
         if not df_all_pos.empty:
             po_print_list = [f"PO #{row['id']} - {row['supplier']} - {row['date']}" for _, row in df_all_pos.iterrows()]
             selected_print_str = st.selectbox("Select PO to Print", po_print_list)
-            print_po_id = int(selected_print_str.split("PO #")[1].split(" -"))
+            print_po_id = safe_int(selected_print_str.split("PO #")[1].split(" -"))
             df_print_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {print_po_id}", conn)
             po_data = df_all_pos[df_all_pos['id'] == print_po_id].iloc
             
@@ -449,15 +462,15 @@ with tab3:
             
             if not df_print_items.empty:
                 for _, item in df_print_items.iterrows():
-                    row_total = int(item['qty_ordered'] * item['cost_price'])
-                    print_html += f"<tr><td>{item['item_desc']}</td><td>{item['qty_ordered']}</td><td>{int(item['cost_price'])}</td><td>{row_total}</td></tr>"
+                    row_total = safe_int(item['qty_ordered']) * safe_int(item['cost_price'])
+                    print_html += f"<tr><td>{item['item_desc']}</td><td>{item['qty_ordered']}</td><td>{safe_int(item['cost_price'])}</td><td>{row_total}</td></tr>"
             else:
                 legacy_details = str(po_data['details']).replace('\n', '<br>')
                 print_html += f"<tr><td colspan='4' style='line-height: 1.8;'>{legacy_details}</td></tr>"
                 
             print_html += f"""
                 </table>
-                <h3 style="text-align: right; margin-top: 20px; font-size: 18px;">Total Estimated Cost: {format_currency(int(po_data['total_cost']))}</h3>
+                <h3 style="text-align: right; margin-top: 20px; font-size: 18px;">Total Estimated Cost: {format_currency(po_data['total_cost'])}</h3>
             </body>
             </html>
             """
@@ -474,7 +487,7 @@ with tab4:
     if st.button("Record Expense") and desc:
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO expenses (date, description, amount) VALUES (%s, %s, %s)", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), desc, int(amt)))
+        c.execute("INSERT INTO expenses (date, description, amount) VALUES (%s, %s, %s)", (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), desc, safe_int(amt)))
         conn.commit()
         conn.close()
         st.success("Saved!")
@@ -493,16 +506,16 @@ with tab5:
     
     st.subheader("Today's Overview")
     
-    # FIX: Native SQL prevents any Pandas crashes when the database is empty
-    c.execute("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE date LIKE %s AND status='Completed'", (today_str+'%',))
-    rev = c.fetchone()
+    # TITANIUM ARMOR AT WORK: Raw Postgres Queries combined with Safe Integer Parsing
+    c.execute("SELECT SUM(total_amount) FROM sales WHERE date LIKE %s AND status='Completed'", (today_str+'%',))
+    rev = safe_int(c.fetchone())
     
-    c.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date LIKE %s", (today_str+'%',))
-    exp = c.fetchone()
+    c.execute("SELECT SUM(amount) FROM expenses WHERE date LIKE %s", (today_str+'%',))
+    exp = safe_int(c.fetchone())
     
     colA, colB = st.columns(2)
-    colA.metric("Today's Cash (Revenue)", format_currency(int(rev)))
-    colB.metric("Today's Expenses", format_currency(int(exp)))
+    colA.metric("Today's Cash (Revenue)", format_currency(rev))
+    colB.metric("Today's Expenses", format_currency(exp))
     
     st.markdown("---")
     
@@ -511,16 +524,15 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
-            # FIX: Native SQL prevents crashes for inventory val
-            c.execute("SELECT COALESCE(SUM(quantity * cost_price), 0), COALESCE(SUM(quantity * price), 0) FROM inventory WHERE quantity > 0")
+            c.execute("SELECT SUM(quantity * cost_price), SUM(quantity * price) FROM inventory WHERE quantity > 0")
             val_result = c.fetchone()
-            total_stock_cost = val_result
-            total_stock_retail = val_result[1]
+            total_stock_cost = safe_int(val_result) if val_result else 0
+            total_stock_retail = safe_int(val_result[1]) if val_result else 0
             
             st.markdown("### 💰 Current Inventory Valuation")
             colD, colE = st.columns(2)
-            colD.markdown(f"<div class='metric-card'><h4>📦 Total Value (At Cost)</h4><h2 style='color:#008000;'>{format_currency(int(total_stock_cost))}</h2></div>", unsafe_allow_html=True)
-            colE.markdown(f"<div class='metric-card'><h4>🏷️ Total Value (At Retail)</h4><h2>{format_currency(int(total_stock_retail))}</h2></div>", unsafe_allow_html=True)
+            colD.markdown(f"<div class='metric-card'><h4>📦 Total Value (At Cost)</h4><h2 style='color:#008000;'>{format_currency(total_stock_cost)}</h2></div>", unsafe_allow_html=True)
+            colE.markdown(f"<div class='metric-card'><h4>🏷️ Total Value (At Retail)</h4><h2>{format_currency(total_stock_retail)}</h2></div>", unsafe_allow_html=True)
             
             st.markdown("---")
             
@@ -533,15 +545,14 @@ with tab5:
                 start_str = start_date.strftime("%Y-%m-%d") + " 00:00:00"
                 end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
                 
-                # FIX: Native SQL to secure all Date Range Math
-                c.execute("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", (start_str, end_str))
-                range_rev = c.fetchone()
+                c.execute("SELECT SUM(total_amount) FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", (start_str, end_str))
+                range_rev = safe_int(c.fetchone())
                 
-                c.execute("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", (start_str, end_str))
-                range_cogs = c.fetchone()
+                c.execute("SELECT SUM(si.qty * si.cost_price) FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", (start_str, end_str))
+                range_cogs = safe_int(c.fetchone())
                 
-                c.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date >= %s AND date <= %s", (start_str, end_str))
-                range_exp = c.fetchone()
+                c.execute("SELECT SUM(amount) FROM expenses WHERE date >= %s AND date <= %s", (start_str, end_str))
+                range_exp = safe_int(c.fetchone())
                 
                 range_net = range_rev - range_cogs - range_exp
                 
@@ -561,11 +572,11 @@ with tab5:
                 
                 st.write(f"**P&L Summary ({start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')})**")
                 pnl_data = pd.DataFrame([
-                    {"Metric": "Revenue (Sales)", "Amount": format_currency(int(range_rev))},
-                    {"Metric": "Cost of Goods Sold (COGS)", "Amount": format_currency(int(range_cogs))},
-                    {"Metric": "Gross Profit", "Amount": format_currency(int(range_rev - range_cogs))},
-                    {"Metric": "Expenses", "Amount": format_currency(int(range_exp))},
-                    {"Metric": "Net Profit", "Amount": format_currency(int(range_net))}
+                    {"Metric": "Revenue (Sales)", "Amount": format_currency(range_rev)},
+                    {"Metric": "Cost of Goods Sold (COGS)", "Amount": format_currency(range_cogs)},
+                    {"Metric": "Gross Profit", "Amount": format_currency(range_rev - range_cogs)},
+                    {"Metric": "Expenses", "Amount": format_currency(range_exp)},
+                    {"Metric": "Net Profit", "Amount": format_currency(range_net)}
                 ])
                 st.dataframe(pnl_data, hide_index=True, use_container_width=True)
                 pnl_csv = pnl_data.to_csv(index=False).encode('utf-8')
@@ -590,12 +601,12 @@ with tab5:
             del_id = st.number_input("Enter Sale ID to permanently DELETE", min_value=0)
             if st.button("Delete Sale"):
                 if del_id > 0:
-                    c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (int(del_id),))
+                    c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (safe_int(del_id),))
                     items_to_restock = c.fetchall()
                     if items_to_restock:
-                        for row in items_to_restock: c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row[1]), int(row)))
-                        c.execute("DELETE FROM sale_items WHERE sale_id=%s", (int(del_id),))
-                        c.execute("DELETE FROM sales WHERE id=%s", (int(del_id),))
+                        for row in items_to_restock: c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (safe_int(row[1]), safe_int(row)))
+                        c.execute("DELETE FROM sale_items WHERE sale_id=%s", (safe_int(del_id),))
+                        c.execute("DELETE FROM sales WHERE id=%s", (safe_int(del_id),))
                         conn.commit()
                         st.success(f"✅ Sale #{del_id} deleted and items restocked!")
                         time.sleep(1.5)
@@ -650,9 +661,9 @@ with tab5:
                         for _, row in df_upload.iterrows():
                             item_id = row.get('id')
                             if pd.notna(item_id) and str(item_id).strip() != "":
-                                c.execute('''UPDATE inventory SET item_type=%s, name=%s, size=%s, thickness=%s, category=%s, price=%s, cost_price=%s, quantity=%s WHERE id=%s''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity']), int(item_id)))
+                                c.execute('''UPDATE inventory SET item_type=%s, name=%s, size=%s, thickness=%s, category=%s, price=%s, cost_price=%s, quantity=%s WHERE id=%s''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), safe_int(row['price']), safe_int(row['cost_price']), safe_int(row['quantity']), safe_int(item_id)))
                             else:
-                                c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), int(row['price']), int(row['cost_price']), int(row['quantity'])))
+                                c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), safe_int(row['price']), safe_int(row['cost_price']), safe_int(row['quantity'])))
                         conn.commit()
                         st.success("✅ Inventory successfully updated from CSV!")
                         time.sleep(1.5)
@@ -681,19 +692,19 @@ with tab5:
                 )
                 
                 if selected_edit_str:
-                    selected_edit_id = int(selected_edit_str.split("ID: ")[1].split(" |"))
+                    selected_edit_id = safe_int(selected_edit_str.split("ID: ")[1].split(" |"))
                     item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].iloc
                     
                     with st.form("edit_inventory_form"):
                         edit_name = st.text_input("Name", value=item_to_edit['name'])
                         edit_size = st.text_input("Size", value=item_to_edit['size'] if item_to_edit['size'] else "")
                         c_cost, c_price, c_qty = st.columns(3)
-                        with c_cost: edit_cost = st.number_input("Cost Price", value=int(item_to_edit['cost_price']), min_value=0)
-                        with c_price: edit_price = st.number_input("Selling Price", value=int(item_to_edit['price']), min_value=0)
-                        with c_qty: edit_qty = st.number_input("Current Quantity", value=int(item_to_edit['quantity']), min_value=0)
+                        with c_cost: edit_cost = st.number_input("Cost Price", value=safe_int(item_to_edit['cost_price']), min_value=0)
+                        with c_price: edit_price = st.number_input("Selling Price", value=safe_int(item_to_edit['price']), min_value=0)
+                        with c_qty: edit_qty = st.number_input("Current Quantity", value=safe_int(item_to_edit['quantity']), min_value=0)
                         
                         if st.form_submit_button("Update Item"):
-                            c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', (edit_name, edit_size, int(edit_cost), int(edit_price), int(edit_qty), int(selected_edit_id)))
+                            c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', (edit_name, edit_size, safe_int(edit_cost), safe_int(edit_price), safe_int(edit_qty), safe_int(selected_edit_id)))
                             conn.commit()
                             st.success(f"✅ Item updated successfully!")
                             time.sleep(1.5)
@@ -701,7 +712,7 @@ with tab5:
                             
                     st.write("")
                     if st.button(f"🚨 Delete '{item_to_edit['name']}' Permanently"):
-                        c.execute("DELETE FROM inventory WHERE id=%s", (int(selected_edit_id),))
+                        c.execute("DELETE FROM inventory WHERE id=%s", (safe_int(selected_edit_id),))
                         conn.commit()
                         st.success("✅ Item permanently deleted from inventory.")
                         time.sleep(1.5)
