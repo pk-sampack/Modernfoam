@@ -72,37 +72,42 @@ with tab1:
         if df_inv.empty:
             st.warning("Inventory is empty.")
         else:
-            options = []
-            for _, row in df_inv.iterrows():
-                if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
-                else:
-                    size_text = f" | {row['size']}" if row['size'] else ""
-                    desc = f"{row['name']}{size_text}"
-                options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
-                
-            # NEW: DYNAMIC SEARCH BAR
-            selected_item_str = st.selectbox(
-                "🔍 Search & Select Item (Click and type to filter dynamically)", 
-                options, 
-                index=None, 
-                placeholder="Start typing brand, size, or thickness here..."
-            )
+            search_term = st.text_input("🔍 Search Item (Type name or size)", "")
+            if search_term:
+                df_inv = df_inv[df_inv['name'].str.contains(search_term, case=False, na=False) | df_inv['size'].str.contains(search_term, case=False, na=False)]
             
-            # Only show quantity and add to bill IF an item is selected
-            if selected_item_str:
-                selected_id = int(selected_item_str.split("ID:")[1].split(" - ")[0])
-                item_data = df_inv[df_inv['id'] == selected_id].iloc[0]
+            if df_inv.empty:
+                st.info("No items match your search.")
+            else:
+                options = []
+                for _, row in df_inv.iterrows():
+                    if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
+                    else:
+                        size_text = f" | {row['size']}" if row['size'] else ""
+                        desc = f"{row['name']}{size_text}"
+                    options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
+                    
+                selected_item_str = st.selectbox(
+                    "🔍 Search & Select Item (Click and type to filter dynamically)", 
+                    options, 
+                    index=None, 
+                    placeholder="Start typing brand, size, or thickness here..."
+                )
                 
-                if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
-                else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
-                
-                col1, col2 = st.columns([3, 1])
-                with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
-                with col2:
-                    st.write(""); st.write("")
-                    if st.button("Add to Bill"):
-                        st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
-                        st.rerun()
+                if selected_item_str:
+                    selected_id = int(selected_item_str.split("ID:")[1].split(" - "))
+                    item_data = df_inv[df_inv['id'] == selected_id].iloc
+                    
+                    if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
+                    else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
+                    
+                    col1, col2 = st.columns([3, 1])
+                    with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
+                    with col2:
+                        st.write(""); st.write("")
+                        if st.button("Add to Bill"):
+                            st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
+                            st.rerun()
 
         if st.session_state.cart:
             st.markdown("---")
@@ -133,7 +138,7 @@ with tab1:
                 c = conn.cursor()
                 date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, int(final_total)))
-                sale_id = c.fetchone()[0]
+                sale_id = c.fetchone()
                 
                 receipt_items_text = ""
                 for item in st.session_state.cart:
@@ -183,29 +188,36 @@ with tab1:
 with tab2:
     st.header("📦 Inventory Management")
     with st.expander("➕ Add New Item"):
-        with st.form("add_inv"):
-            type_val = st.radio("Type", ["Mattress", "Other Item"])
-            name = st.text_input("Name")
-            col_s1, col_s2 = st.columns(2)
-            with col_s1: size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x66 (Queen)",  "78x60 (Queen1)", "78x42 (Single)", "72x36 (U)", "22x22 (U)", "22x18 (U)", "18x18 (U)", "72x36 (Single TF)", "Custom"])
-            with col_s2: 
-                if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key="cust_size")
-                else: size = size_choice
+        # COMPLETELY REMOVED st.form TO ALLOW INSTANT DROPDOWN UPDATES
+        type_val = st.radio("Type", ["Mattress", "Other Item"])
+        name = st.text_input("Name")
+        col_s1, col_s2 = st.columns(2)
+        with col_s1: 
+            size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x66 (Queen)",  "78x60 (Queen1)", "78x42 (Single)", "72x36 (U)", "22x22 (U)", "22x18 (U)", "18x18 (U)", "72x36 (Single TF)", "Custom"])
+        with col_s2: 
+            # Because the form is removed, this logic triggers instantly when "Custom" is selected
+            if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key="cust_size")
+            else: size = size_choice
 
-            thick = st.selectbox("Thickness", ["0.5 inch","0.8 inch","1 inch","1.5 inch","2 inch","3 inch","4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
-            cat = st.selectbox("Category", ["Covered", "Uncovered"]) if type_val == "Mattress" else ""
-            c1, c2, c3 = st.columns(3)
-            with c1: cost = st.number_input("Cost Price", min_value=0)
-            with c2: price = st.number_input("Selling Price", min_value=0)
-            with c3: qty = st.number_input("Qty", min_value=0)
-            
-            if st.form_submit_button("Save"):
+        thick = st.selectbox("Thickness", ["0.5 inch","0.8 inch","1 inch","1.5 inch","2 inch","3 inch","4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
+        cat = st.selectbox("Category", ["Covered", "Uncovered"]) if type_val == "Mattress" else ""
+        c1, c2, c3 = st.columns(3)
+        with c1: cost = st.number_input("Cost Price", min_value=0)
+        with c2: price = st.number_input("Selling Price", min_value=0)
+        with c3: qty = st.number_input("Qty", min_value=0)
+        
+        # Standard button requires a physical click to save, ignoring the "Enter" key
+        if st.button("Save New Item", type="primary"):
+            if not name:
+                st.error("Please provide a name for the item.")
+            else:
                 conn = get_db_connection()
                 c = conn.cursor()
                 c.execute("INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (type_val, name, size, thick, cat, int(price), int(cost), int(qty)))
                 conn.commit()
                 conn.close()
-                st.success("Item Added!")
+                st.success("✅ Item Added!")
+                time.sleep(1.5)
                 st.rerun()
 
     conn = get_db_connection()
@@ -239,7 +251,6 @@ with tab3:
                 if row['thickness']: opt_str += f" | {row['thickness']}"
                 inv_options.append(opt_str)
                 
-            # NEW: DYNAMIC SEARCH BAR FOR PO
             selected_po_item_str = st.selectbox(
                 "🔍 Search & Select Item to Order", 
                 inv_options, 
@@ -248,8 +259,8 @@ with tab3:
             )
             
             if selected_po_item_str:
-                po_selected_id = int(selected_po_item_str.split("ID:")[1].split(" -")[0])
-                po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc[0]
+                po_selected_id = int(selected_po_item_str.split("ID:")[1].split(" -"))
+                po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc
                 
                 po_desc = f"{po_item_data['name']}"
                 if po_item_data['size']: po_desc += f" | {po_item_data['size']}"
@@ -278,7 +289,7 @@ with tab3:
                         c = conn.cursor()
                         date_now = datetime.now().strftime("%Y-%m-%d")
                         c.execute("INSERT INTO purchase_orders (date, supplier, details, total_cost, status) VALUES (%s, %s, %s, %s, %s) RETURNING id", (date_now, supplier, "Structured PO", int(po_grand_total), "Pending"))
-                        new_po_id = c.fetchone()[0]
+                        new_po_id = c.fetchone()
                         for item in st.session_state.po_cart:
                             c.execute("INSERT INTO po_items (po_id, item_id, item_desc, qty_ordered, cost_price, sale_price) VALUES (%s, %s, %s, %s, %s, %s)", (int(new_po_id), int(item['item_id']), item['desc'], int(item['qty']), int(item['cost']), int(item['sale'])))
                         conn.commit()
@@ -295,7 +306,7 @@ with tab3:
         else:
             po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_pending_pos.iterrows()]
             selected_recv_str = st.selectbox("Select Purchase Order to Receive", po_list)
-            recv_po_id = int(selected_recv_str.split("PO #")[1].split(" -")[0])
+            recv_po_id = int(selected_recv_str.split("PO #")[1].split(" -"))
             df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {recv_po_id}", conn)
             
             if df_po_items.empty:
@@ -328,7 +339,7 @@ with tab3:
                         
                         c.execute("SELECT SUM(qty_ordered), SUM(qty_received) FROM po_items WHERE po_id = %s", (recv_po_id,))
                         sums = c.fetchone()
-                        if sums[0] == sums[1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
+                        if sums == sums[1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
                         elif total_received_updates > 0: c.execute("UPDATE purchase_orders SET status = 'Partially Received' WHERE id = %s", (recv_po_id,))
                         conn.commit()
                         st.success("✅ Inventory restocked and PO updated!")
@@ -343,9 +354,9 @@ with tab3:
         else:
             po_list = [f"PO #{row['id']} - {row['supplier']} ({row['status']})" for _, row in df_all_pos.iterrows()]
             selected_manage_str = st.selectbox("Select Purchase Order to Manage", po_list)
-            manage_po_id = int(selected_manage_str.split("PO #")[1].split(" -")[0])
+            manage_po_id = int(selected_manage_str.split("PO #")[1].split(" -"))
             
-            po_data = df_all_pos[df_all_pos['id'] == manage_po_id].iloc[0]
+            po_data = df_all_pos[df_all_pos['id'] == manage_po_id].iloc
             df_po_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {manage_po_id}", conn)
             
             st.markdown("---")
@@ -409,9 +420,9 @@ with tab3:
         if not df_all_pos.empty:
             po_print_list = [f"PO #{row['id']} - {row['supplier']} - {row['date']}" for _, row in df_all_pos.iterrows()]
             selected_print_str = st.selectbox("Select PO to Print", po_print_list)
-            print_po_id = int(selected_print_str.split("PO #")[1].split(" -")[0])
+            print_po_id = int(selected_print_str.split("PO #")[1].split(" -"))
             df_print_items = pd.read_sql_query(f"SELECT * FROM po_items WHERE po_id = {print_po_id}", conn)
-            po_data = df_all_pos[df_all_pos['id'] == print_po_id].iloc[0]
+            po_data = df_all_pos[df_all_pos['id'] == print_po_id].iloc
             
             print_html = f"""
             <html>
@@ -486,8 +497,8 @@ with tab5:
     conn = get_db_connection()
     
     st.subheader("Today's Overview")
-    rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc[0]['t']
-    exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc[0]['e']
+    rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc['t']
+    exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc['e']
     
     colA, colB = st.columns(2)
     colA.metric("Today's Cash (Revenue)", format_currency(int(rev)))
@@ -500,7 +511,7 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
-            val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc[0]
+            val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc
             total_stock_cost = val_query['total_cost']
             total_stock_retail = val_query['total_retail']
             
@@ -520,9 +531,9 @@ with tab5:
                 start_str = start_date.strftime("%Y-%m-%d") + " 00:00:00"
                 end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
                 
-                range_rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", conn, params=(start_str, end_str)).iloc[0]['t']
-                range_cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", conn, params=(start_str, end_str)).iloc[0]['c']
-                range_exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date >= %s AND date <= %s", conn, params=(start_str, end_str)).iloc[0]['e']
+                range_rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", conn, params=(start_str, end_str)).iloc['t']
+                range_cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", conn, params=(start_str, end_str)).iloc['c']
+                range_exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date >= %s AND date <= %s", conn, params=(start_str, end_str)).iloc['e']
                 range_net = range_rev - range_cogs - range_exp
                 
                 product_query = """
@@ -574,7 +585,7 @@ with tab5:
                     c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (int(del_id),))
                     items_to_restock = c.fetchall()
                     if items_to_restock:
-                        for row in items_to_restock: c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row[1]), int(row[0])))
+                        for row in items_to_restock: c.execute("UPDATE inventory SET quantity = quantity + %s WHERE id = %s", (int(row[1]), int(row)))
                         c.execute("DELETE FROM sale_items WHERE sale_id=%s", (int(del_id),))
                         c.execute("DELETE FROM sales WHERE id=%s", (int(del_id),))
                         conn.commit()
@@ -656,7 +667,6 @@ with tab5:
                     if row['thickness']: opt_str += f" | {row['thickness']}"
                     inv_edit_options.append(opt_str)
                     
-                # NEW: DYNAMIC SEARCH BAR FOR ADMIN EDIT
                 selected_edit_str = st.selectbox(
                     "Select Item to Edit/Delete", 
                     inv_edit_options,
@@ -665,8 +675,8 @@ with tab5:
                 )
                 
                 if selected_edit_str:
-                    selected_edit_id = int(selected_edit_str.split("ID: ")[1].split(" |")[0])
-                    item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].iloc[0]
+                    selected_edit_id = int(selected_edit_str.split("ID: ")[1].split(" |"))
+                    item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].iloc
                     
                     with st.form("edit_inventory_form"):
                         edit_name = st.text_input("Name", value=item_to_edit['name'])
