@@ -72,42 +72,35 @@ with tab1:
         if df_inv.empty:
             st.warning("Inventory is empty.")
         else:
-            search_term = st.text_input("🔍 Search Item (Type name or size)", "")
-            if search_term:
-                df_inv = df_inv[df_inv['name'].str.contains(search_term, case=False, na=False) | df_inv['size'].str.contains(search_term, case=False, na=False)]
-            
-            if df_inv.empty:
-                st.info("No items match your search.")
-            else:
-                options = []
-                for _, row in df_inv.iterrows():
-                    if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
-                    else:
-                        size_text = f" | {row['size']}" if row['size'] else ""
-                        desc = f"{row['name']}{size_text}"
-                    options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
-                    
-                selected_item_str = st.selectbox(
-                    "🔍 Search & Select Item (Click and type to filter dynamically)", 
-                    options, 
-                    index=None, 
-                    placeholder="Start typing brand, size, or thickness here..."
-                )
+            options = []
+            for _, row in df_inv.iterrows():
+                if row['item_type'] == 'Mattress': desc = f"{row['name']} | {row['size']} | {row['thickness']}"
+                else:
+                    size_text = f" | {row['size']}" if row['size'] else ""
+                    desc = f"{row['name']}{size_text}"
+                options.append(f"ID:{row['id']} - {desc} - {format_currency(row['price'])}")
                 
-                if selected_item_str:
-                    selected_id = int(selected_item_str.split("ID:")[1].split(" - "))
-                    item_data = df_inv[df_inv['id'] == selected_id].iloc
-                    
-                    if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
-                    else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
-                    
-                    col1, col2 = st.columns([3, 1])
-                    with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
-                    with col2:
-                        st.write(""); st.write("")
-                        if st.button("Add to Bill"):
-                            st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
-                            st.rerun()
+            selected_item_str = st.selectbox(
+                "🔍 Search & Select Item (Click and type to filter dynamically)", 
+                options, 
+                index=None, 
+                placeholder="Start typing brand, size, or thickness here..."
+            )
+            
+            if selected_item_str:
+                selected_id = int(selected_item_str.split("ID:")[1].split(" - "))
+                item_data = df_inv[df_inv['id'] == selected_id].iloc
+                
+                if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
+                else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
+                
+                col1, col2 = st.columns([3, 1])
+                with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=int(item_data['quantity']), step=1)
+                with col2:
+                    st.write(""); st.write("")
+                    if st.button("Add to Bill"):
+                        st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': item_data['price'], 'cost_price': item_data['cost_price'], 'qty': qty_to_buy, 'total': item_data['price'] * qty_to_buy})
+                        st.rerun()
 
         if st.session_state.cart:
             st.markdown("---")
@@ -188,14 +181,12 @@ with tab1:
 with tab2:
     st.header("📦 Inventory Management")
     with st.expander("➕ Add New Item"):
-        # COMPLETELY REMOVED st.form TO ALLOW INSTANT DROPDOWN UPDATES
         type_val = st.radio("Type", ["Mattress", "Other Item"])
         name = st.text_input("Name")
         col_s1, col_s2 = st.columns(2)
         with col_s1: 
             size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x66 (Queen)",  "78x60 (Queen1)", "78x42 (Single)", "72x36 (U)", "22x22 (U)", "22x18 (U)", "18x18 (U)", "72x36 (Single TF)", "Custom"])
         with col_s2: 
-            # Because the form is removed, this logic triggers instantly when "Custom" is selected
             if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key="cust_size")
             else: size = size_choice
 
@@ -206,7 +197,6 @@ with tab2:
         with c2: price = st.number_input("Selling Price", min_value=0)
         with c3: qty = st.number_input("Qty", min_value=0)
         
-        # Standard button requires a physical click to save, ignoring the "Enter" key
         if st.button("Save New Item", type="primary"):
             if not name:
                 st.error("Please provide a name for the item.")
@@ -497,6 +487,7 @@ with tab5:
     conn = get_db_connection()
     
     st.subheader("Today's Overview")
+    # FIX: Added back into .iloc to properly extract the integer values
     rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc['t']
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc['e']
     
@@ -531,6 +522,7 @@ with tab5:
                 start_str = start_date.strftime("%Y-%m-%d") + " 00:00:00"
                 end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
                 
+                # FIX: Added back into .iloc for the custom date range queries as well
                 range_rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", conn, params=(start_str, end_str)).iloc['t']
                 range_cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", conn, params=(start_str, end_str)).iloc['c']
                 range_exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date >= %s AND date <= %s", conn, params=(start_str, end_str)).iloc['e']
