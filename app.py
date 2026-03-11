@@ -46,7 +46,6 @@ init_db()
 
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'po_cart' not in st.session_state: st.session_state.po_cart = []
-# Dynamic key to reset inventory form
 if 'inv_clear_key' not in st.session_state: st.session_state.inv_clear_key = 0
 
 def format_currency(amount): return f"PKR {amount:,.0f}"
@@ -183,7 +182,6 @@ with tab1:
 with tab2:
     st.header("📦 Inventory Management")
     with st.expander("➕ Add New Item"):
-        # Grab current dynamic key
         ik = st.session_state.inv_clear_key
         
         type_val = st.radio("Type", ["Mattress", "Other Item"], key=f"type_{ik}")
@@ -212,7 +210,6 @@ with tab2:
                 conn.commit()
                 conn.close()
                 st.success("✅ Item Added!")
-                # Increment the dynamic key to wipe the form instantly
                 st.session_state.inv_clear_key += 1
                 time.sleep(1.0)
                 st.rerun()
@@ -492,10 +489,16 @@ with tab5:
     st.header("📊 Admin, P&L & Reports")
     today_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
+    c = conn.cursor()
     
     st.subheader("Today's Overview")
-    rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc['t']
-    exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc['e']
+    
+    # FIX: Native SQL prevents any Pandas crashes when the database is empty
+    c.execute("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE date LIKE %s AND status='Completed'", (today_str+'%',))
+    rev = c.fetchone()
+    
+    c.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date LIKE %s", (today_str+'%',))
+    exp = c.fetchone()
     
     colA, colB = st.columns(2)
     colA.metric("Today's Cash (Revenue)", format_currency(int(rev)))
@@ -508,9 +511,11 @@ with tab5:
         if pwd == "admin123":
             st.success("Admin Access Granted.")
             
-            val_query = pd.read_sql_query("SELECT COALESCE(SUM(quantity * cost_price), 0) as total_cost, COALESCE(SUM(quantity * price), 0) as total_retail FROM inventory WHERE quantity > 0", conn).iloc
-            total_stock_cost = val_query['total_cost']
-            total_stock_retail = val_query['total_retail']
+            # FIX: Native SQL prevents crashes for inventory val
+            c.execute("SELECT COALESCE(SUM(quantity * cost_price), 0), COALESCE(SUM(quantity * price), 0) FROM inventory WHERE quantity > 0")
+            val_result = c.fetchone()
+            total_stock_cost = val_result
+            total_stock_retail = val_result[1]
             
             st.markdown("### 💰 Current Inventory Valuation")
             colD, colE = st.columns(2)
@@ -528,9 +533,16 @@ with tab5:
                 start_str = start_date.strftime("%Y-%m-%d") + " 00:00:00"
                 end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
                 
-                range_rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", conn, params=(start_str, end_str)).iloc['t']
-                range_cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", conn, params=(start_str, end_str)).iloc['c']
-                range_exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date >= %s AND date <= %s", conn, params=(start_str, end_str)).iloc['e']
+                # FIX: Native SQL to secure all Date Range Math
+                c.execute("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", (start_str, end_str))
+                range_rev = c.fetchone()
+                
+                c.execute("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", (start_str, end_str))
+                range_cogs = c.fetchone()
+                
+                c.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date >= %s AND date <= %s", (start_str, end_str))
+                range_exp = c.fetchone()
+                
                 range_net = range_rev - range_cogs - range_exp
                 
                 product_query = """
@@ -578,7 +590,6 @@ with tab5:
             del_id = st.number_input("Enter Sale ID to permanently DELETE", min_value=0)
             if st.button("Delete Sale"):
                 if del_id > 0:
-                    c = conn.cursor()
                     c.execute("SELECT item_id, qty FROM sale_items WHERE sale_id=%s", (int(del_id),))
                     items_to_restock = c.fetchall()
                     if items_to_restock:
@@ -602,7 +613,6 @@ with tab5:
                 
                 if st.form_submit_button("Apply Bulk Update to All Items"):
                     if adj_value != 0:
-                        c = conn.cursor()
                         cols_to_update = []
                         if adj_target in ["Both Cost & Selling Price", "Only Cost Price"]: cols_to_update.append("cost_price")
                         if adj_target in ["Both Cost & Selling Price", "Only Selling Price"]: cols_to_update.append("price")
@@ -637,7 +647,6 @@ with tab5:
                     try:
                         df_upload = pd.read_csv(uploaded_file)
                         df_upload.fillna({'item_type': '', 'name': '', 'size': '', 'thickness': '', 'category': '', 'cost_price': 0, 'price': 0, 'quantity': 0}, inplace=True)
-                        c = conn.cursor()
                         for _, row in df_upload.iterrows():
                             item_id = row.get('id')
                             if pd.notna(item_id) and str(item_id).strip() != "":
@@ -684,7 +693,6 @@ with tab5:
                         with c_qty: edit_qty = st.number_input("Current Quantity", value=int(item_to_edit['quantity']), min_value=0)
                         
                         if st.form_submit_button("Update Item"):
-                            c = conn.cursor()
                             c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', (edit_name, edit_size, int(edit_cost), int(edit_price), int(edit_qty), int(selected_edit_id)))
                             conn.commit()
                             st.success(f"✅ Item updated successfully!")
@@ -693,7 +701,6 @@ with tab5:
                             
                     st.write("")
                     if st.button(f"🚨 Delete '{item_to_edit['name']}' Permanently"):
-                        c = conn.cursor()
                         c.execute("DELETE FROM inventory WHERE id=%s", (int(selected_edit_id),))
                         conn.commit()
                         st.success("✅ Item permanently deleted from inventory.")
