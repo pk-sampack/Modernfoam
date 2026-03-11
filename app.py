@@ -46,6 +46,8 @@ init_db()
 
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'po_cart' not in st.session_state: st.session_state.po_cart = []
+# Dynamic key to reset inventory form
+if 'inv_clear_key' not in st.session_state: st.session_state.inv_clear_key = 0
 
 def format_currency(amount): return f"PKR {amount:,.0f}"
 
@@ -181,21 +183,24 @@ with tab1:
 with tab2:
     st.header("📦 Inventory Management")
     with st.expander("➕ Add New Item"):
-        type_val = st.radio("Type", ["Mattress", "Other Item"])
-        name = st.text_input("Name")
+        # Grab current dynamic key
+        ik = st.session_state.inv_clear_key
+        
+        type_val = st.radio("Type", ["Mattress", "Other Item"], key=f"type_{ik}")
+        name = st.text_input("Name", key=f"name_{ik}")
         col_s1, col_s2 = st.columns(2)
         with col_s1: 
-            size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x66 (Queen)",  "78x60 (Queen1)", "78x42 (Single)", "72x36 (U)", "22x22 (U)", "22x18 (U)", "18x18 (U)", "72x36 (Single TF)", "Custom"])
+            size_choice = st.selectbox("Standard Size", ["78x72 (King)", "78x66 (Queen)",  "78x60 (Queen1)", "78x42 (Single)", "72x36 (U)", "22x22 (U)", "22x18 (U)", "18x18 (U)", "72x36 (Single TF)", "Custom"], key=f"size_choice_{ik}")
         with col_s2: 
-            if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key="cust_size")
+            if size_choice == "Custom": size = st.text_input("Type Custom Size (e.g. 72x36)", key=f"cust_size_{ik}")
             else: size = size_choice
 
-        thick = st.selectbox("Thickness", ["0.5 inch","0.8 inch","1 inch","1.5 inch","2 inch","3 inch","4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"]) if type_val == "Mattress" else ""
-        cat = st.selectbox("Category", ["Covered", "Uncovered"]) if type_val == "Mattress" else ""
+        thick = st.selectbox("Thickness", ["0.5 inch","0.8 inch","1 inch","1.5 inch","2 inch","3 inch","4 inch", "5 inch", "6 inch", "8 inch", "10 inch", "N/A"], key=f"thick_{ik}") if type_val == "Mattress" else ""
+        cat = st.selectbox("Category", ["Covered", "Uncovered"], key=f"cat_{ik}") if type_val == "Mattress" else ""
         c1, c2, c3 = st.columns(3)
-        with c1: cost = st.number_input("Cost Price", min_value=0)
-        with c2: price = st.number_input("Selling Price", min_value=0)
-        with c3: qty = st.number_input("Qty", min_value=0)
+        with c1: cost = st.number_input("Cost Price", min_value=0, key=f"cost_{ik}")
+        with c2: price = st.number_input("Selling Price", min_value=0, key=f"price_{ik}")
+        with c3: qty = st.number_input("Qty", min_value=0, key=f"qty_{ik}")
         
         if st.button("Save New Item", type="primary"):
             if not name:
@@ -207,7 +212,9 @@ with tab2:
                 conn.commit()
                 conn.close()
                 st.success("✅ Item Added!")
-                time.sleep(1.5)
+                # Increment the dynamic key to wipe the form instantly
+                st.session_state.inv_clear_key += 1
+                time.sleep(1.0)
                 st.rerun()
 
     conn = get_db_connection()
@@ -487,7 +494,6 @@ with tab5:
     conn = get_db_connection()
     
     st.subheader("Today's Overview")
-    # FIX: Added back into .iloc to properly extract the integer values
     rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date LIKE %s AND status='Completed'", conn, params=(today_str+'%',)).iloc['t']
     exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date LIKE %s", conn, params=(today_str+'%',)).iloc['e']
     
@@ -522,7 +528,6 @@ with tab5:
                 start_str = start_date.strftime("%Y-%m-%d") + " 00:00:00"
                 end_str = end_date.strftime("%Y-%m-%d") + " 23:59:59"
                 
-                # FIX: Added back into .iloc for the custom date range queries as well
                 range_rev = pd.read_sql_query("SELECT COALESCE(SUM(total_amount), 0) as t FROM sales WHERE date >= %s AND date <= %s AND status='Completed'", conn, params=(start_str, end_str)).iloc['t']
                 range_cogs = pd.read_sql_query("SELECT COALESCE(SUM(si.qty * si.cost_price), 0) as c FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE s.date >= %s AND s.date <= %s AND s.status='Completed'", conn, params=(start_str, end_str)).iloc['c']
                 range_exp = pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as e FROM expenses WHERE date >= %s AND date <= %s", conn, params=(start_str, end_str)).iloc['e']
