@@ -48,7 +48,6 @@ if 'cart' not in st.session_state: st.session_state.cart = []
 if 'po_cart' not in st.session_state: st.session_state.po_cart = []
 if 'inv_clear_key' not in st.session_state: st.session_state.inv_clear_key = 0
 
-# 🛡️ TITANIUM ARMOR: This function prevents ALL "NoneType" crashes forever.
 def safe_int(val):
     try:
         if val is None or pd.isna(val): return 0
@@ -99,13 +98,14 @@ with tab1:
             
             if selected_item_str:
                 selected_id = safe_int(selected_item_str.split("ID:")[1].split(" - "))
-                item_data = df_inv[df_inv['id'] == selected_id].iloc
+                
+                # BUG FIX: Convert exact row to Python dictionary to bypass Pandas indexing crashes
+                item_data = df_inv[df_inv['id'] == selected_id].to_dict('records')
                 
                 if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
                 else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
                 
                 col1, col2 = st.columns([3, 1])
-                # Ensure max value is never 0 to prevent Streamlit warnings
                 max_qty = safe_int(item_data['quantity'])
                 max_qty = max_qty if max_qty > 0 else 1
                 
@@ -267,7 +267,9 @@ with tab3:
             
             if selected_po_item_str:
                 po_selected_id = safe_int(selected_po_item_str.split("ID:")[1].split(" -"))
-                po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].iloc
+                
+                # BUG FIX: Convert to dict to avoid pandas crashes
+                po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].to_dict('records')
                 
                 po_desc = f"{po_item_data['name']}"
                 if po_item_data['size']: po_desc += f" | {po_item_data['size']}"
@@ -506,7 +508,6 @@ with tab5:
     
     st.subheader("Today's Overview")
     
-    # TITANIUM ARMOR AT WORK: Raw Postgres Queries combined with Safe Integer Parsing
     c.execute("SELECT SUM(total_amount) FROM sales WHERE date LIKE %s AND status='Completed'", (today_str+'%',))
     rev = safe_int(c.fetchone())
     
@@ -661,6 +662,7 @@ with tab5:
                         for _, row in df_upload.iterrows():
                             item_id = row.get('id')
                             if pd.notna(item_id) and str(item_id).strip() != "":
+                                # BUG FIX: Added safe_int here to prevent CSV import errors
                                 c.execute('''UPDATE inventory SET item_type=%s, name=%s, size=%s, thickness=%s, category=%s, price=%s, cost_price=%s, quantity=%s WHERE id=%s''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), safe_int(row['price']), safe_int(row['cost_price']), safe_int(row['quantity']), safe_int(item_id)))
                             else:
                                 c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), safe_int(row['price']), safe_int(row['cost_price']), safe_int(row['quantity'])))
@@ -693,7 +695,9 @@ with tab5:
                 
                 if selected_edit_str:
                     selected_edit_id = safe_int(selected_edit_str.split("ID: ")[1].split(" |"))
-                    item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].iloc
+                    
+                    # BUG FIX: Convert to dict here as well
+                    item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].to_dict('records')
                     
                     with st.form("edit_inventory_form"):
                         edit_name = st.text_input("Name", value=item_to_edit['name'])
