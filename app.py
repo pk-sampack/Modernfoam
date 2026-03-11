@@ -99,7 +99,7 @@ with tab1:
             if selected_item_str:
                 selected_id = safe_int(selected_item_str.split("ID:")[1].split(" - "))
                 
-                # BUG FIX: Convert exact row to Python dictionary to bypass Pandas indexing crashes
+                # EXACT FIX: Adding to extract the dictionary properly
                 item_data = df_inv[df_inv['id'] == selected_id].to_dict('records')
                 
                 if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
@@ -268,7 +268,7 @@ with tab3:
             if selected_po_item_str:
                 po_selected_id = safe_int(selected_po_item_str.split("ID:")[1].split(" -"))
                 
-                # BUG FIX: Convert to dict to avoid pandas crashes
+                # EXACT FIX: Adding here as well
                 po_item_data = df_all_inv[df_all_inv['id'] == po_selected_id].to_dict('records')
                 
                 po_desc = f"{po_item_data['name']}"
@@ -662,7 +662,6 @@ with tab5:
                         for _, row in df_upload.iterrows():
                             item_id = row.get('id')
                             if pd.notna(item_id) and str(item_id).strip() != "":
-                                # BUG FIX: Added safe_int here to prevent CSV import errors
                                 c.execute('''UPDATE inventory SET item_type=%s, name=%s, size=%s, thickness=%s, category=%s, price=%s, cost_price=%s, quantity=%s WHERE id=%s''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), safe_int(row['price']), safe_int(row['cost_price']), safe_int(row['quantity']), safe_int(item_id)))
                             else:
                                 c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), safe_int(row['price']), safe_int(row['cost_price']), safe_int(row['quantity'])))
@@ -696,7 +695,7 @@ with tab5:
                 if selected_edit_str:
                     selected_edit_id = safe_int(selected_edit_str.split("ID: ")[1].split(" |"))
                     
-                    # BUG FIX: Convert to dict here as well
+                    # EXACT FIX: Adding here to extract the dictionary properly
                     item_to_edit = df_inv_admin[df_inv_admin['id'] == selected_edit_id].to_dict('records')
                     
                     with st.form("edit_inventory_form"):
