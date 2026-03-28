@@ -112,15 +112,30 @@ with tab1:
                 if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
                 else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
                 
-                col1, col2 = st.columns((3, 1))
+                # Show Available Quantity
+                st.info(f"📦 **Available Stock:** {item_data['quantity']} units")
+                
+                col1, col2, col3 = st.columns((2, 2, 1))
                 max_qty = safe_int(item_data['quantity'])
                 max_qty = max_qty if max_qty > 0 else 1
+                base_price = safe_int(item_data['price'])
                 
-                with col1: qty_to_buy = st.number_input("Quantity", min_value=1, max_value=max_qty, step=1)
+                with col1: 
+                    qty_to_buy = st.number_input("Quantity", min_value=1, max_value=max_qty, step=1)
                 with col2:
+                    # Upward Price Customization
+                    custom_price = st.number_input("Custom Sale Price (PKR)", min_value=base_price, value=base_price, step=100)
+                with col3:
                     st.write(""); st.write("")
                     if st.button("Add to Bill"):
-                        st.session_state.cart.append({'id': item_data['id'], 'desc': cart_desc, 'price': safe_int(item_data['price']), 'cost_price': safe_int(item_data['cost_price']), 'qty': qty_to_buy, 'total': safe_int(item_data['price']) * qty_to_buy})
+                        st.session_state.cart.append({
+                            'id': item_data['id'], 
+                            'desc': cart_desc, 
+                            'price': safe_int(custom_price), 
+                            'cost_price': safe_int(item_data['cost_price']), 
+                            'qty': qty_to_buy, 
+                            'total': safe_int(custom_price) * qty_to_buy
+                        })
                         st.rerun()
 
         if st.session_state.cart:
@@ -129,20 +144,26 @@ with tab1:
             st.dataframe(cart_df[['desc', 'qty', 'price', 'total']], use_container_width=True)
             grand_total = sum(item['total'] for item in st.session_state.cart)
             
-            d_col1, d_col2 = st.columns(2)
+            # Discount & Carriage Layout
+            d_col1, d_col2, d_col3 = st.columns(3)
             with d_col1: discount_type = st.selectbox("Discount Type", ["Percentage (%)", "Flat Amount (PKR)", "None"], index=0)
             with d_col2: discount_value = 0 if discount_type == "None" else st.number_input("Enter Discount", min_value=0)
+            with d_col3: carriage_charge = st.number_input("Carriage Amount (PKR)", min_value=0, value=0, step=100)
             
+            # Calculate Discount
             if discount_type == "Percentage (%)" and discount_value > 0:
                 discount_amount = safe_int(grand_total * (discount_value / 100.0))
-                final_total = max(0, grand_total - discount_amount)
                 discount_text = f"Discount applied: {discount_value}% (- PKR {discount_amount:,.0f})"
             elif discount_type == "Flat Amount (PKR)" and discount_value > 0:
-                final_total = max(0, grand_total - safe_int(discount_value))
+                discount_amount = safe_int(discount_value)
                 discount_text = f"Discount applied: - PKR {discount_value:,.0f}"
             else:
-                final_total = grand_total
+                discount_amount = 0
                 discount_text = ""
+
+            # Final Math
+            sub_after_disc = max(0, grand_total - discount_amount)
+            final_total = sub_after_disc + safe_int(carriage_charge)
 
             st.markdown(f"<h3 style='color:#006600;'>Grand Total: {format_currency(final_total)}</h3>", unsafe_allow_html=True)
             cust_phone = st.text_input("Customer Phone (Optional, format: 923XXXXXXXXX)")
@@ -151,6 +172,7 @@ with tab1:
                 conn = get_db_connection()
                 c = conn.cursor()
                 date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # Total amount saved in DB includes the carriage charge
                 c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, safe_int(final_total)))
                 sale_id = c.fetchone()[IDX_0]
                 
@@ -165,7 +187,12 @@ with tab1:
                 st.session_state.cart = []
                 
                 wa_text = f"*Modern Foam Center Receipt*\n\nItems:\n{receipt_items_text}\n"
-                if discount_type != "None" and discount_value > 0: wa_text += f"Subtotal: {format_currency(grand_total)}\n{discount_text}\n"
+                wa_text += f"Subtotal: {format_currency(grand_total)}\n"
+                if discount_type != "None" and discount_value > 0: 
+                    wa_text += f"{discount_text}\n"
+                if carriage_charge > 0:
+                    wa_text += f"Carriage Charge: + PKR {safe_int(carriage_charge):,.0f}\n"
+                
                 wa_text += f"*Total: {format_currency(final_total)}*\nPayment: Cash\n\nThank you for your purchase!"
                 encoded_text = urllib.parse.quote(wa_text)
                 wa_link = f"https://wa.me/{cust_phone}?text={encoded_text}" if cust_phone else f"https://wa.me/?text={encoded_text}"
