@@ -8,7 +8,6 @@ import streamlit.components.v1 as components
 
 # ==========================================
 # ANTI-CITATION DELETION VARIABLES
-# (Prevents chat UI from deleting bracket numbers)
 # ==========================================
 IDX_0 = 0
 IDX_1 = 1
@@ -51,6 +50,38 @@ def init_db():
 
 init_db()
 
+# ==========================================
+# ⚡ HIGH-SPEED MEMORY CACHING SYSTEM
+# ==========================================
+@st.cache_data(ttl=60)
+def fetch_active_inventory():
+    conn = get_db_connection()
+    df = pd.read_sql_query("SELECT * FROM inventory WHERE quantity > 0 ORDER BY name ASC", conn)
+    conn.close()
+    return df
+
+@st.cache_data(ttl=60)
+def fetch_all_inventory_asc():
+    conn = get_db_connection()
+    df = pd.read_sql_query("SELECT * FROM inventory ORDER BY name ASC", conn)
+    conn.close()
+    return df
+
+@st.cache_data(ttl=60)
+def fetch_all_inventory_desc():
+    conn = get_db_connection()
+    df = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
+    conn.close()
+    return df
+
+def clear_db_cache():
+    fetch_active_inventory.clear()
+    fetch_all_inventory_asc.clear()
+    fetch_all_inventory_desc.clear()
+
+# ==========================================
+# SESSION STATES & HELPERS
+# ==========================================
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'po_cart' not in st.session_state: st.session_state.po_cart = []
 if 'inv_clear_key' not in st.session_state: st.session_state.inv_clear_key = 0
@@ -81,9 +112,9 @@ with tab1:
     pos_mode = st.radio("Mode", ["New Sale", "Process Return"], horizontal=True)
     if pos_mode == "New Sale":
         st.header("New Cash Sale")
-        conn = get_db_connection()
-        df_inv = pd.read_sql_query("SELECT * FROM inventory WHERE quantity > 0 ORDER BY name ASC", conn)
-        conn.close()
+        
+        # ⚡ PULLS INSTANTLY FROM MEMORY INSTEAD OF SUPABASE
+        df_inv = fetch_active_inventory()
         
         if df_inv.empty:
             st.warning("Inventory is empty.")
@@ -139,7 +170,6 @@ with tab1:
             st.markdown("---")
             st.markdown("### 🛒 Current Bill")
             
-            # Custom layout to allow deleting individual items
             h1, h2, h3, h4, h5 = st.columns([4, 1, 2, 2, 1])
             h1.markdown("**Item**")
             h2.markdown("**Qty**")
@@ -153,14 +183,12 @@ with tab1:
                 c2.write(str(item['qty']))
                 c3.write(format_currency(item['price']))
                 c4.write(format_currency(item['total']))
-                # Delete button for specific item
                 if c5.button("❌", key=f"del_{i}"):
                     st.session_state.cart.pop(i)
                     st.rerun()
             
             st.markdown("---")
 
-            # Check if cart is still not empty after potential deletion
             if len(st.session_state.cart) > 0:
                 grand_total = sum(item['total'] for item in st.session_state.cart)
                 
@@ -202,6 +230,9 @@ with tab1:
                     conn.close()
                     st.session_state.cart = []
                     
+                    # ⚡ DUMPS CACHE SO NEXT SALE SEES ACCURATE STOCK
+                    clear_db_cache()
+                    
                     wa_text = f"*Modern Foam Center Receipt*\n\nItems:\n{receipt_items_text}\n"
                     wa_text += f"Subtotal: {format_currency(grand_total)}\n"
                     if discount_type != "None" and discount_value > 0: 
@@ -235,6 +266,7 @@ with tab1:
                     c.execute("UPDATE sales SET status = 'Returned', total_amount = 0 WHERE id = %s", (safe_int(sale_id_to_return),))
                     conn.commit()
                     conn.close()
+                    clear_db_cache()
                     st.success("Return Processed successfully!")
             else:
                 st.error("Sale not found.")
@@ -272,14 +304,14 @@ with tab2:
                 c.execute("INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (type_val, name, size, thick, cat, safe_int(price), safe_int(cost), safe_int(qty)))
                 conn.commit()
                 conn.close()
+                clear_db_cache()
                 st.success("✅ Item Added!")
                 st.session_state.inv_clear_key += 1
                 time.sleep(1.0)
                 st.rerun()
 
-    conn = get_db_connection()
-    df_show_inv = pd.read_sql_query("SELECT id, name, size, thickness, price, quantity FROM inventory ORDER BY id DESC", conn)
-    conn.close()
+    # ⚡ PULLS INSTANTLY FROM MEMORY
+    df_show_inv = fetch_all_inventory_desc()
     
     st.info("💡 Tip: You can click the magnifying glass icon inside the table below to quickly search your stock.")
     st.dataframe(df_show_inv, hide_index=True, use_container_width=True)
@@ -293,9 +325,8 @@ with tab3:
     
     if po_action == "➕ Create New PO":
         supplier = st.text_input("Supplier/Factory Name (e.g., Diamond Foam Factory)")
-        conn = get_db_connection()
-        df_all_inv = pd.read_sql_query("SELECT * FROM inventory ORDER BY name ASC", conn)
-        conn.close()
+        
+        df_all_inv = fetch_all_inventory_asc()
         
         if df_all_inv.empty:
             st.warning("⚠️ Your inventory is currently empty! Please go to the '📦 Inventory' tab or upload your CSV to add items before creating a Purchase Order.")
@@ -399,6 +430,7 @@ with tab3:
                         if sums and sums[IDX_0] == sums[IDX_1]: c.execute("UPDATE purchase_orders SET status = 'Completed' WHERE id = %s", (recv_po_id,))
                         elif total_received_updates > 0: c.execute("UPDATE purchase_orders SET status = 'Partially Received' WHERE id = %s", (recv_po_id,))
                         conn.commit()
+                        clear_db_cache()
                         st.success("✅ Inventory restocked and PO updated!")
                         time.sleep(1.5)
                         st.rerun()
@@ -662,6 +694,7 @@ with tab5:
                         c.execute("DELETE FROM sale_items WHERE sale_id=%s", (safe_int(del_id),))
                         c.execute("DELETE FROM sales WHERE id=%s", (safe_int(del_id),))
                         conn.commit()
+                        clear_db_cache()
                         st.success(f"✅ Sale #{del_id} deleted and items restocked!")
                         time.sleep(1.5)
                         st.rerun()
@@ -692,6 +725,7 @@ with tab5:
                             c.execute(query, (adj_value,))
                             
                         conn.commit()
+                        clear_db_cache()
                         st.success(f"✅ Successfully updated {adj_target}!")
                         time.sleep(1.5)
                         st.rerun()
@@ -719,6 +753,7 @@ with tab5:
                             else:
                                 c.execute('''INSERT INTO inventory (item_type, name, size, thickness, category, price, cost_price, quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(row['item_type']), str(row['name']), str(row['size']), str(row['thickness']), str(row['category']), safe_int(row['price']), safe_int(row['cost_price']), safe_int(row['quantity'])))
                         conn.commit()
+                        clear_db_cache()
                         st.success("✅ Inventory successfully updated from CSV!")
                         time.sleep(1.5)
                         st.rerun()
@@ -728,7 +763,9 @@ with tab5:
             st.markdown("---")
             
             st.subheader("✏️ Edit or Delete Single Inventory Item")
-            df_inv_admin = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
+            
+            # PULLS INSTANTLY FROM MEMORY
+            df_inv_admin = fetch_all_inventory_desc()
             
             if not df_inv_admin.empty:
                 inv_edit_options = []
@@ -761,6 +798,7 @@ with tab5:
                         if st.form_submit_button("Update Item"):
                             c.execute('''UPDATE inventory SET name=%s, size=%s, cost_price=%s, price=%s, quantity=%s WHERE id=%s''', (edit_name, edit_size, safe_int(edit_cost), safe_int(edit_price), safe_int(edit_qty), safe_int(selected_edit_id)))
                             conn.commit()
+                            clear_db_cache()
                             st.success(f"✅ Item updated successfully!")
                             time.sleep(1.5)
                             st.rerun()
@@ -769,6 +807,7 @@ with tab5:
                     if st.button(f"🚨 Delete '{item_to_edit['name']}' Permanently"):
                         c.execute("DELETE FROM inventory WHERE id=%s", (safe_int(selected_edit_id),))
                         conn.commit()
+                        clear_db_cache()
                         st.success("✅ Item permanently deleted from inventory.")
                         time.sleep(1.5)
                         st.rerun()
