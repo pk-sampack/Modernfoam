@@ -106,13 +106,11 @@ with tab1:
             if selected_item_str:
                 selected_id = safe_int(selected_item_str.split("ID:")[IDX_1].split(" - ")[IDX_0])
                 
-                # COMPLETELY IMMUNE TO CITATION DELETION
                 item_data = df_inv[df_inv['id'] == selected_id].to_dict('records')[IDX_0]
                 
                 if item_data['item_type'] == 'Mattress': cart_desc = f"{item_data['name']} | {item_data['size']} | {item_data['thickness']}"
                 else: cart_desc = f"{item_data['name']} | {item_data['size']}" if item_data['size'] else item_data['name']
                 
-                # Show Available Quantity
                 st.info(f"📦 **Available Stock:** {item_data['quantity']} units")
                 
                 col1, col2, col3 = st.columns((2, 2, 1))
@@ -123,7 +121,6 @@ with tab1:
                 with col1: 
                     qty_to_buy = st.number_input("Quantity", min_value=1, max_value=max_qty, step=1)
                 with col2:
-                    # Upward Price Customization
                     custom_price = st.number_input("Custom Sale Price (PKR)", min_value=base_price, value=base_price, step=100)
                 with col3:
                     st.write(""); st.write("")
@@ -140,66 +137,85 @@ with tab1:
 
         if st.session_state.cart:
             st.markdown("---")
-            cart_df = pd.DataFrame(st.session_state.cart)
-            st.dataframe(cart_df[['desc', 'qty', 'price', 'total']], use_container_width=True)
-            grand_total = sum(item['total'] for item in st.session_state.cart)
+            st.markdown("### 🛒 Current Bill")
             
-            # Discount & Carriage Layout
-            d_col1, d_col2, d_col3 = st.columns(3)
-            with d_col1: discount_type = st.selectbox("Discount Type", ["Percentage (%)", "Flat Amount (PKR)", "None"], index=0)
-            with d_col2: discount_value = 0 if discount_type == "None" else st.number_input("Enter Discount", min_value=0)
-            with d_col3: carriage_charge = st.number_input("Carriage Amount (PKR)", min_value=0, value=0, step=100)
+            # Custom layout to allow deleting individual items
+            h1, h2, h3, h4, h5 = st.columns([4, 1, 2, 2, 1])
+            h1.markdown("**Item**")
+            h2.markdown("**Qty**")
+            h3.markdown("**Price**")
+            h4.markdown("**Total**")
+            h5.markdown("**Remove**")
             
-            # Calculate Discount
-            if discount_type == "Percentage (%)" and discount_value > 0:
-                discount_amount = safe_int(grand_total * (discount_value / 100.0))
-                discount_text = f"Discount applied: {discount_value}% (- PKR {discount_amount:,.0f})"
-            elif discount_type == "Flat Amount (PKR)" and discount_value > 0:
-                discount_amount = safe_int(discount_value)
-                discount_text = f"Discount applied: - PKR {discount_value:,.0f}"
-            else:
-                discount_amount = 0
-                discount_text = ""
+            for i, item in enumerate(st.session_state.cart):
+                c1, c2, c3, c4, c5 = st.columns([4, 1, 2, 2, 1])
+                c1.write(item['desc'])
+                c2.write(str(item['qty']))
+                c3.write(format_currency(item['price']))
+                c4.write(format_currency(item['total']))
+                # Delete button for specific item
+                if c5.button("❌", key=f"del_{i}"):
+                    st.session_state.cart.pop(i)
+                    st.rerun()
+            
+            st.markdown("---")
 
-            # Final Math
-            sub_after_disc = max(0, grand_total - discount_amount)
-            final_total = sub_after_disc + safe_int(carriage_charge)
-
-            st.markdown(f"<h3 style='color:#006600;'>Grand Total: {format_currency(final_total)}</h3>", unsafe_allow_html=True)
-            cust_phone = st.text_input("Customer Phone (Optional, format: 923XXXXXXXXX)")
-            
-            if st.button("Complete Cash Sale"):
-                conn = get_db_connection()
-                c = conn.cursor()
-                date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Total amount saved in DB includes the carriage charge
-                c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, safe_int(final_total)))
-                sale_id = c.fetchone()[IDX_0]
+            # Check if cart is still not empty after potential deletion
+            if len(st.session_state.cart) > 0:
+                grand_total = sum(item['total'] for item in st.session_state.cart)
                 
-                receipt_items_text = ""
-                for item in st.session_state.cart:
-                    c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)", (safe_int(sale_id), item['desc'], safe_int(item['price']), safe_int(item['cost_price']), safe_int(item['qty']), safe_int(item['id'])))
-                    c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (safe_int(item['qty']), safe_int(item['id'])))
-                    receipt_items_text += f"- {item['qty']}x {item['desc']}\n"
+                d_col1, d_col2, d_col3 = st.columns(3)
+                with d_col1: discount_type = st.selectbox("Discount Type", ["Percentage (%)", "Flat Amount (PKR)", "None"], index=0)
+                with d_col2: discount_value = 0 if discount_type == "None" else st.number_input("Enter Discount", min_value=0)
+                with d_col3: carriage_charge = st.number_input("Carriage Amount (PKR)", min_value=0, value=0, step=100)
+                
+                if discount_type == "Percentage (%)" and discount_value > 0:
+                    discount_amount = safe_int(grand_total * (discount_value / 100.0))
+                    discount_text = f"Discount applied: {discount_value}% (- PKR {discount_amount:,.0f})"
+                elif discount_type == "Flat Amount (PKR)" and discount_value > 0:
+                    discount_amount = safe_int(discount_value)
+                    discount_text = f"Discount applied: - PKR {discount_value:,.0f}"
+                else:
+                    discount_amount = 0
+                    discount_text = ""
+
+                sub_after_disc = max(0, grand_total - discount_amount)
+                final_total = sub_after_disc + safe_int(carriage_charge)
+
+                st.markdown(f"<h3 style='color:#006600;'>Grand Total: {format_currency(final_total)}</h3>", unsafe_allow_html=True)
+                cust_phone = st.text_input("Customer Phone (Optional, format: 923XXXXXXXXX)")
+                
+                if st.button("Complete Cash Sale"):
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    c.execute("INSERT INTO sales (date, customer_phone, total_amount) VALUES (%s, %s, %s) RETURNING id", (date_now, cust_phone, safe_int(final_total)))
+                    sale_id = c.fetchone()[IDX_0]
                     
-                conn.commit()
-                conn.close()
-                st.session_state.cart = []
-                
-                wa_text = f"*Modern Foam Center Receipt*\n\nItems:\n{receipt_items_text}\n"
-                wa_text += f"Subtotal: {format_currency(grand_total)}\n"
-                if discount_type != "None" and discount_value > 0: 
-                    wa_text += f"{discount_text}\n"
-                if carriage_charge > 0:
-                    wa_text += f"Carriage Charge: + PKR {safe_int(carriage_charge):,.0f}\n"
-                
-                wa_text += f"*Total: {format_currency(final_total)}*\nPayment: Cash\n\nThank you for your purchase!"
-                encoded_text = urllib.parse.quote(wa_text)
-                wa_link = f"https://wa.me/{cust_phone}?text={encoded_text}" if cust_phone else f"https://wa.me/?text={encoded_text}"
-                
-                st.success(f"Sale #{sale_id} Completed Successfully!")
-                st.markdown(f'<a href="{wa_link}" target="_blank" class="whatsapp-btn">📱 Send WhatsApp / SMS Receipt</a>', unsafe_allow_html=True)
-                if st.button("Start Next Sale"): st.rerun()
+                    receipt_items_text = ""
+                    for item in st.session_state.cart:
+                        c.execute("INSERT INTO sale_items (sale_id, item_desc, price, cost_price, qty, item_id) VALUES (%s, %s, %s, %s, %s, %s)", (safe_int(sale_id), item['desc'], safe_int(item['price']), safe_int(item['cost_price']), safe_int(item['qty']), safe_int(item['id'])))
+                        c.execute("UPDATE inventory SET quantity = quantity - %s WHERE id = %s", (safe_int(item['qty']), safe_int(item['id'])))
+                        receipt_items_text += f"- {item['qty']}x {item['desc']}\n"
+                        
+                    conn.commit()
+                    conn.close()
+                    st.session_state.cart = []
+                    
+                    wa_text = f"*Modern Foam Center Receipt*\n\nItems:\n{receipt_items_text}\n"
+                    wa_text += f"Subtotal: {format_currency(grand_total)}\n"
+                    if discount_type != "None" and discount_value > 0: 
+                        wa_text += f"{discount_text}\n"
+                    if carriage_charge > 0:
+                        wa_text += f"Carriage Charge: + PKR {safe_int(carriage_charge):,.0f}\n"
+                    
+                    wa_text += f"*Total: {format_currency(final_total)}*\nPayment: Cash\n\nThank you for your purchase!"
+                    encoded_text = urllib.parse.quote(wa_text)
+                    wa_link = f"https://wa.me/{cust_phone}?text={encoded_text}" if cust_phone else f"https://wa.me/?text={encoded_text}"
+                    
+                    st.success(f"Sale #{sale_id} Completed Successfully!")
+                    st.markdown(f'<a href="{wa_link}" target="_blank" class="whatsapp-btn">📱 Send WhatsApp / SMS Receipt</a>', unsafe_allow_html=True)
+                    if st.button("Start Next Sale"): st.rerun()
 
     elif pos_mode == "Process Return":
         st.header("🔄 Return Item")
